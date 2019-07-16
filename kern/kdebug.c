@@ -76,20 +76,19 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 			// exact match for 'addr', but continue loop to find
 			// *region_right
 			*region_left = m;
-			l = m;
-			addr++;
+			l = m + 1;
 		}
 	}
 
 	if (!any_matches)
 		*region_right = *region_left - 1;
 	else {
-		// find rightmost region containing 'addr'
-		for (l = *region_right;
-		     l > *region_left && stabs[l].n_type != type;
-		     l--)
-			/* do nothing */;
-		*region_left = l;
+		// // find rightmost region containing 'addr'
+		// for (l = *region_right;
+		//      l > *region_left && stabs[l].n_type != type;
+		//      l--)
+		// 	/* do nothing */;
+		// *region_left = l;
 	}
 }
 
