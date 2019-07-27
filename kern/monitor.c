@@ -10,6 +10,7 @@
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -24,7 +25,10 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
-    {"backtrace", "Backtrace the call of functions", mon_backtrace},
+    { "backtrace", "Backtrace the call of functions", mon_backtrace },
+    { "showmappings", "Show the mappings between given virtual memory range", mon_showmappings },
+    { "setpageperm", "Set the permission bits of a given mapping", mon_setpageperm },
+    { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem},
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -84,7 +88,131 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
+int mon_showmappings(int argc, char **argv, struct Trapframe *tf) {
+    static const char *msg = 
+    "Usage: showmappings START END\n"
+    "\tAttention: START <= END";
 
+    if (argc != 3)
+        goto help;
+
+    uintptr_t vstart, vend;
+    pte_t *pte;
+
+    vstart = (uintptr_t)strtol(argv[1], 0, 0); 
+    vend = (uintptr_t)strtol(argv[2], 0, 0);
+
+    if (vstart > vend)
+        goto help;
+
+    vstart = ROUNDDOWN(vstart, PGSIZE);
+    vend = ROUNDDOWN(vend, PGSIZE);
+
+    for(; vstart <= vend; vstart += PGSIZE) {
+        pte = pgdir_walk(kern_pgdir, (void*)vstart, 0);
+        if (pte && *pte & PTE_P) {
+            cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d\n",
+            vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W));
+        } else {
+            cprintf("VA: 0x%08x, No Mapping\n", vstart);
+        }
+    }
+    return 0;
+
+help: 
+    cprintf(msg);
+    return 0;
+}
+
+int mon_setpageperm(int argc, char **argv, struct Trapframe *tf) {
+    static const char *msg = 
+    "Usage: setpageperm VA PERM\n";
+
+    if (argc != 3)
+        goto help;
+    
+    uintptr_t va;
+    uint16_t perm;
+    pte_t *pte;
+
+    va = (uintptr_t)strtol(argv[1], 0, 0);
+    perm = (uint16_t)strtol(argv[2], 0, 0);
+
+    pte = pgdir_walk(kern_pgdir, (void*)va, 0);
+    if (pte && *pte & PTE_P) {
+        *pte = (*pte & ~0xFFF) | (perm & 0xFFF) | PTE_P;
+    } else {
+        cprintf("There's no such mapping\n");
+    }
+    return 0;
+
+help: 
+    cprintf(msg);
+    return 0;    
+}
+
+int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
+    static const char *msg =
+    "Usage: dumpmem [option] START END\n"
+    "\t-p, --physical\tuse physical address\n";
+
+    int phys = 0;
+
+    if (argc == 4) {
+        int i;
+        for (i = 1; i < argc; ++i) {
+            if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--physical")) {
+                phys = 1;
+                break;
+            }
+        }
+        if (!phys)
+            goto help;
+        for (int j = i; j < argc - 1; ++j)
+            argv[j] = argv[j + 1];
+    } else if (argc != 3) {
+        goto help;
+    }
+
+    uint32_t mstart, mend;
+    pte_t *pte;
+    
+    mstart = (uint32_t)strtol(argv[1], 0, 0);
+    mend = (uint32_t)strtol(argv[2], 0, 0);
+
+    if (phys) {
+        if (mend > ~(uint32_t)0 - KERNBASE) {
+            cprintf("Target memory out of range\n");
+            return 0;
+        }
+        for (; mstart <= mend; ++mstart) {
+            cprintf("[PA: 0x%08x]: %02x\n", mstart, *(uint8_t*)KADDR(mstart));
+        }
+    } else {
+        for (; mstart <= mend; ++mstart) {
+            if (!(pte = pgdir_walk(kern_pgdir, (void*)mstart, 0))) {
+                uint32_t next = (uint32_t)PGADDR(PDX(mstart) + 1, 0, 0) - 1;
+                for (; mstart <= next; ++mstart)
+                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+                mstart--;
+                continue;
+            }
+            if (!(*pte & PTE_P)) {
+                uint32_t next = (uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0) - 1;
+                for (; mstart <= next; ++mstart)
+                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+                mstart--;
+                continue;
+            }
+            cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
+        }
+    }
+    return 0;
+
+help: 
+    cprintf(msg);
+    return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
