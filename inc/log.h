@@ -9,5 +9,6 @@
 #define log_expr(expr, fmt) log("("#expr"): "fmt"\n",(expr))
 #define log_hex(expr) log_expr(expr, "%x") 
 #define log_int(expr) log_expr(expr, "%d")
+#define checkpoint log("checkpoint\n");
 
 #endif
