@@ -114,7 +114,7 @@ int mon_showmappings(int argc, char **argv, struct Trapframe *tf) {
             cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d\n",
             vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W));
         } else {
-            cprintf("VA: 0x%08x, No Mapping\n", vstart);
+            cprintf("VA: 0x%08x, PA: No Mapping\n", vstart);
         }
     }
     return 0;
@@ -175,36 +175,35 @@ int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
     }
 
     uint32_t mstart, mend;
-    pte_t *pte;
     
     mstart = (uint32_t)strtol(argv[1], 0, 0);
     mend = (uint32_t)strtol(argv[2], 0, 0);
 
     if (phys) {
-        if (mend > ~(uint32_t)0 - KERNBASE) {
+        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
             cprintf("Target memory out of range\n");
             return 0;
         }
-        for (; mstart <= mend; ++mstart) {
+        for (; mstart < mend; ++mstart) {
             cprintf("[PA: 0x%08x]: %02x\n", mstart, *(uint8_t*)KADDR(mstart));
         }
     } else {
-        for (; mstart <= mend; ++mstart) {
+        uint32_t next;
+        pte_t *pte;
+        while(mstart < mend) {
             if (!(pte = pgdir_walk(kern_pgdir, (void*)mstart, 0))) {
-                uint32_t next = (uint32_t)PGADDR(PDX(mstart) + 1, 0, 0) - 1;
-                for (; mstart <= next; ++mstart)
+                next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
+                for (; mstart < next; ++mstart)
                     cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-                mstart--;
-                continue;
-            }
-            if (!(*pte & PTE_P)) {
-                uint32_t next = (uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0) - 1;
-                for (; mstart <= next; ++mstart)
+            } else if (!(*pte & PTE_P)) {
+                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+                for (; mstart < next; ++mstart)
                     cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-                mstart--;
-                continue;
+            } else {
+                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+                for (; mstart < next; ++mstart)
+                    cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
             }
-            cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
         }
     }
     return 0;
