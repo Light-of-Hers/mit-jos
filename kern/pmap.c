@@ -184,7 +184,7 @@ mem_init(void)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
     boot_map_region(kern_pgdir, UPAGES, PTSIZE, PADDR(pages), PTE_U);
-    checkpoint
+    
 	//////////////////////////////////////////////////////////////////////
 	// Map the 'envs' array read-only by the user at linear address UENVS
 	// (ie. perm = PTE_U | PTE_P).
@@ -218,7 +218,7 @@ mem_init(void)
 	// Your code goes here:
     boot_map_region(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
 	// Check that the initial page directory has been set up correctly.
-	// check_kern_pgdir();
+	check_kern_pgdir();
 
 	// Switch from the minimal entry page directory to the full kern_pgdir
 	// page table we just created.	Our instruction pointer should be
@@ -229,7 +229,7 @@ mem_init(void)
 	// kern_pgdir wrong.
 	lcr3(PADDR(kern_pgdir));
 
-	// check_page_free_list(0);
+	check_page_free_list(0);
 
 	// entry.S set the really important flags in cr0 (including enabling
 	// paging).  Here we configure the rest of the flags that we care about.
@@ -239,7 +239,7 @@ mem_init(void)
 	lcr0(cr0);
 
 	// Some more checks, only possible after kern_pgdir is installed.
-	// check_page_installed_pgdir();
+	check_page_installed_pgdir();
 }
 
 // --------------------------------------------------------------
@@ -465,23 +465,23 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
     pte_t *pte;
-    struct PageInfo *old_pp;
+    // struct PageInfo *old_pp;
 
-    old_pp = page_lookup(pgdir, va, 0);
-    if (old_pp && old_pp != pp)
-        page_remove(pgdir, va);
-    if (!(pte = pgdir_walk(pgdir, va, 1)))
-        return -E_NO_MEM;
-    *pte = page2pa(pp) | perm | PTE_P;
-    if (old_pp != pp)
-        pp->pp_ref += 1;
+    // old_pp = page_lookup(pgdir, va, 0);
+    // if (old_pp && old_pp != pp)
+    //     page_remove(pgdir, va);
     // if (!(pte = pgdir_walk(pgdir, va, 1)))
     //     return -E_NO_MEM;
-    // if (!(*pte & PTE_P))
-    //     pp->pp_ref += 1;
-    // else if (PTE_ADDR(*pte) != page2pa(pp))
-    //     page_remove(pgdir, va), pp->pp_ref += 1;
     // *pte = page2pa(pp) | perm | PTE_P;
+    // if (old_pp != pp)
+    //     pp->pp_ref += 1;
+    if (!(pte = pgdir_walk(pgdir, va, 1)))
+        return -E_NO_MEM;
+    if (!(*pte & PTE_P))
+        pp->pp_ref += 1;
+    else if (PTE_ADDR(*pte) != page2pa(pp))
+        page_remove(pgdir, va), pp->pp_ref += 1;
+    *pte = page2pa(pp) | perm | PTE_P;
     return 0;
 }
 

@@ -289,7 +289,7 @@ region_alloc(struct Env *e, void *va, size_t len)
     vend = ROUNDUP((uintptr_t)va + len, PGSIZE);
 
     for (; vstart < vend; vstart += PGSIZE) {
-        if (!(pp = page_alloc(ALLOC_ZERO)));
+        if (!(pp = page_alloc(ALLOC_ZERO)))
             panic("region_alloc(1)");
         if ((err = page_insert(e->env_pgdir, pp, (void*)vstart, PTE_W | PTE_U)) < 0)
             panic("region_alloc(2): %e", err);
@@ -352,14 +352,11 @@ load_icode(struct Env *e, uint8_t *binary)
 	// LAB 3: Your code here.
     struct Elf *eh;
     struct Proghdr *ph, *ph_end;
-    struct Trapframe *tf;
-
-    tf = &e->env_tf;
 
     eh = (struct Elf *) binary;
     if (eh->e_magic != ELF_MAGIC)
         panic("load_icode(1)");
-    
+
     ph = (struct Proghdr *) (binary + eh->e_phoff);
     ph_end = ph + eh->e_phnum;
 
@@ -370,22 +367,19 @@ load_icode(struct Env *e, uint8_t *binary)
             continue;
         if (ph->p_filesz > ph->p_memsz)
             panic("load_icode(2)");
+
         region_alloc(e, (void*)ph->p_va, ph->p_memsz);
 
         memset((void*)ph->p_va, 0, ph->p_memsz);
         memcpy((void*)ph->p_va, binary + ph->p_offset, ph->p_filesz);
     }
-    tf->tf_eip = eh->e_entry;
-
+    e->env_tf.tf_eip = eh->e_entry;
+    
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
 
 	// LAB 3: Your code here.
     region_alloc(e, (void*)(USTACKTOP - PGSIZE), PGSIZE);
-    tf->tf_esp = USTACKTOP;
-
-    tf->tf_esp -= sizeof(*tf);
-    memcpy((void*)tf->tf_esp, tf, sizeof(*tf));
 
     lcr3(PADDR(kern_pgdir));
 }
