@@ -1,6 +1,7 @@
 #include <inc/mmu.h>
 #include <inc/x86.h>
 #include <inc/assert.h>
+#include <inc/log.h>
 
 #include <kern/pmap.h>
 #include <kern/trap.h>
@@ -58,6 +59,53 @@ static const char *trapname(int trapno)
 	return "(unknown trap)";
 }
 
+#define TH(n) extern void handler##n (void);
+#define THE(n) TH(n)
+TH(0)
+TH(1)
+TH(2)
+TH(3)
+TH(4)
+TH(5)
+TH(6)
+TH(7)
+THE(8)
+THE(10)
+THE(11)
+THE(12)
+THE(13)
+THE(14)
+TH(16)
+THE(17)
+TH(18)
+TH(19)
+#undef THE
+#undef TH
+
+#define TH(n) [n] = handler##n
+#define THE(n) TH(n)
+void (* handlers[256])(void) = {
+    TH(0),
+    TH(1),
+    TH(2),
+    TH(3),
+    TH(4),
+    TH(5),
+    TH(6),
+    TH(7),
+    THE(8),
+    THE(10),
+    THE(11),
+    THE(12),
+    THE(13),
+    THE(14),
+    TH(16),
+    THE(17),
+    TH(18),
+    TH(19),
+};
+#undef THE
+#undef TH
 
 void
 trap_init(void)
@@ -65,7 +113,8 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.
-
+    for (int i = 0; i < 32; ++i) 
+        SETGATE(idt[i], 0, GD_KT, handlers[i], 0);
 	// Per-CPU setup 
 	trap_init_percpu();
 }
