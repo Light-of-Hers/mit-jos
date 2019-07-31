@@ -29,7 +29,7 @@ static struct Command commands[] = {
     { "backtrace", "Backtrace the call of functions", mon_backtrace },
     { "showmappings", "Show the mappings between given virtual memory range", mon_showmappings },
     { "setpageperm", "Set the permission bits of a given mapping", mon_setpageperm },
-    { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem},
+    { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem },
 };
 
 /***** Implementations of basic kernel monitor commands *****/

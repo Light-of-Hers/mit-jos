@@ -70,6 +70,7 @@ TH(16)
 THE(17)
 TH(18)
 TH(19)
+TH(48)
 
 /*
  * Lab 3: Your code here for _alltraps

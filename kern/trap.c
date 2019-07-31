@@ -79,30 +79,32 @@ TH(16)
 THE(17)
 TH(18)
 TH(19)
+TH(48)
 #undef THE
 #undef TH
 
-#define TH(n) [n] = handler##n
+#define TH(n) [n] = handler##n,
 #define THE(n) TH(n)
-void (* handlers[256])(void) = {
-    TH(0),
-    TH(1),
-    TH(2),
-    TH(3),
-    TH(4),
-    TH(5),
-    TH(6),
-    TH(7),
-    THE(8),
-    THE(10),
-    THE(11),
-    THE(12),
-    THE(13),
-    THE(14),
-    TH(16),
-    THE(17),
-    TH(18),
-    TH(19),
+static void (* handlers[256])(void) = {
+TH(0)
+TH(1)
+TH(2)
+TH(3)
+TH(4)
+TH(5)
+TH(6)
+TH(7)
+THE(8)
+THE(10)
+THE(11)
+THE(12)
+THE(13)
+THE(14)
+TH(16)
+THE(17)
+TH(18)
+TH(19)
+TH(48)
 };
 #undef THE
 #undef TH
@@ -115,6 +117,8 @@ trap_init(void)
 	// LAB 3: Your code here.
     for (int i = 0; i < 32; ++i) 
         SETGATE(idt[i], 0, GD_KT, handlers[i], 0);
+    SETGATE(idt[T_BRKPT], 0, GD_KT, handlers[T_BRKPT], 3);
+    SETGATE(idt[T_SYSCALL], 0, GD_KT, handlers[T_SYSCALL], 3);
 	// Per-CPU setup 
 	trap_init_percpu();
 }
@@ -193,6 +197,36 @@ trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
+    switch(tf->tf_trapno) {
+    case T_GPFLT: {
+        uint32_t index = (tf->tf_err >> 3) & 0x1FFF;
+        (void)index;
+        break;
+    }
+    case T_PGFLT: {
+        page_fault_handler(tf);
+        return;
+    }
+    case T_BRKPT: {
+        monitor(tf);
+        return;
+    }
+    case T_SYSCALL: {
+        // eax, edx, ecx, ebx, edi, esi;
+        struct PushRegs *r = &tf->tf_regs;
+        r->reg_eax = syscall(
+            r->reg_eax, 
+            r->reg_edx, 
+            r->reg_ecx, 
+            r->reg_ebx, 
+            r->reg_edi, 
+            r->reg_esi
+        );
+        return;
+    }
+    default:
+        break;
+    }
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
@@ -254,6 +288,8 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
+    if ((tf->tf_cs & 3) == 0)
+        panic("page fault in kernel mode");
 
 	// We've already handled kernel-mode exceptions, so if we get here,
 	// the page fault happened in user mode.
