@@ -30,6 +30,8 @@ static struct Command commands[] = {
     { "showmappings", "Show the mappings between given virtual memory range", mon_showmappings },
     { "setpageperm", "Set the permission bits of a given mapping", mon_setpageperm },
     { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem },
+    { "continue", "Continue the execution", mon_continue },
+    { "step", "Step in the execution", mon_step },
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -211,6 +213,17 @@ int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
 
 help: 
     cprintf(msg);
+    return 0;
+}
+
+int mon_continue(int argc, char **argv, struct Trapframe *tf) {
+    if (tf)
+        return -1;
+    return 0;
+}
+
+int mon_step(int argc, char **argv, struct Trapframe *tf) {
+    // TODO
     return 0;
 }
 
