@@ -42,15 +42,50 @@
 	pushl $(num);							\
 	jmp _alltraps
 
+#define TH(n) \
+TRAPHANDLER_NOEC(handler##n, n)
+
+#define THE(n) \
+TRAPHANDLER(handler##n, n)
+
 .text
 
 /*
  * Lab 3: Your code here for generating entry points for the different traps.
  */
-
-
+TH(0)
+TH(1)
+TH(2)
+TH(3)
+TH(4)
+TH(5)
+TH(6)
+TH(7)
+THE(8)
+THE(10)
+THE(11)
+THE(12)
+THE(13)
+THE(14)
+TH(16)
+THE(17)
+TH(18)
+TH(19)
+TH(48)
 
 /*
  * Lab 3: Your code here for _alltraps
  */
+_alltraps:
+    pushl %ds 
+    pushl %es 
+    pushal 
 
+    movw $GD_KD, %ax
+    movw %ax, %ds 
+    movw %ax, %es
+
+    pushl %esp 
+    call trap 
+trap_spin:
+    jmp trap_spin
