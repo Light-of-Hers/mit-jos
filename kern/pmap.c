@@ -465,22 +465,10 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
     pte_t *pte;
-    // struct PageInfo *old_pp;
-
-    // old_pp = page_lookup(pgdir, va, 0);
-    // if (old_pp && old_pp != pp)
-    //     page_remove(pgdir, va);
-    // if (!(pte = pgdir_walk(pgdir, va, 1)))
-    //     return -E_NO_MEM;
-    // *pte = page2pa(pp) | perm | PTE_P;
-    // if (old_pp != pp)
-    //     pp->pp_ref += 1;
     if (!(pte = pgdir_walk(pgdir, va, 1)))
         return -E_NO_MEM;
-    if (!(*pte & PTE_P))
-        pp->pp_ref += 1;
-    else if (PTE_ADDR(*pte) != page2pa(pp))
-        page_remove(pgdir, va), pp->pp_ref += 1;
+    pp->pp_ref++;
+    page_remove(pgdir, va);
     *pte = page2pa(pp) | perm | PTE_P;
     return 0;
 }
