@@ -207,9 +207,9 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-    boot_map_region(
-        kern_pgdir, KSTACKTOP - KSTKSIZE, KSTKSIZE, 
-        PADDR(bootstacktop) - KSTKSIZE, PTE_W);
+    // boot_map_region(
+    //     kern_pgdir, KSTACKTOP - KSTKSIZE, KSTKSIZE, 
+    //     PADDR(bootstacktop) - KSTKSIZE, PTE_W);
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -270,7 +270,15 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+    for (size_t i = 0; i < NCPU; ++i) {
+        boot_map_region(
+            kern_pgdir, 
+            KSTACKTOP - KSTKSIZE - i * (KSTKSIZE + KSTKGAP),
+            KSTKSIZE,
+            PADDR(percpu_kstacks[i]),
+            PTE_W 
+        );
+    }
 }
 
 // --------------------------------------------------------------
@@ -310,13 +318,15 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 #define MARK_FREE(_i) do {\
-    pages[_i].pp_ref = 0;\
-    pages[_i].pp_link = page_free_list;\
-	page_free_list = &pages[_i];\
+    size_t __tmp__ = _i;\
+    pages[__tmp__].pp_ref = 0;\
+    pages[__tmp__].pp_link = page_free_list;\
+	page_free_list = &pages[__tmp__];\
 } while(0)
 #define MARK_USE(_i) do {\
-    pages[_i].pp_ref = 0;\
-    pages[_i].pp_link = NULL;\
+    size_t __tmp__ = _i;\
+    pages[__tmp__].pp_ref = 0;\
+    pages[__tmp__].pp_link = NULL;\
 } while(0)
 
     extern char end[];
@@ -329,15 +339,18 @@ page_init(void)
     boot_alloc_end = PADDR(boot_alloc(0));
 
     MARK_USE(0);
-    for (i = 1; i < npages_basemem; ++i)
+    for (i = 1; i < MPENTRY_PADDR / PGSIZE; ++i)
         MARK_FREE(i);
-    for (i = IOPHYSMEM / PGSIZE; i < EXTPHYSMEM / PGSIZE; ++i)
+    MARK_USE(i++);
+    for (; i < npages_basemem; ++i)
+        MARK_FREE(i);
+    for (; i < EXTPHYSMEM / PGSIZE; ++i)
         MARK_USE(i);
-    for (i = EXTPHYSMEM / PGSIZE; i < bss_end / PGSIZE; ++i)
+    for (; i < bss_end / PGSIZE; ++i)
         MARK_USE(i);
-    for (i = bss_end / PGSIZE; i < boot_alloc_end / PGSIZE; ++i)
+    for (; i < boot_alloc_end / PGSIZE; ++i)
         MARK_USE(i);
-    for (i = boot_alloc_end / PGSIZE; i < npages; ++i)
+    for (; i < npages; ++i)
         MARK_FREE(i);
 
 #undef MARK_USE
@@ -607,7 +620,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	// panic("mmio_map_region not implemented");
+    uintptr_t start;
+
+    start = base;
+    size = ROUNDUP(size, PGSIZE);
+    base += size;
+    boot_map_region(kern_pgdir, start, size, pa, PTE_W | PTE_PCD | PTE_PWT);
+    return (void*)start;
 }
 
 static uintptr_t user_mem_check_addr;
