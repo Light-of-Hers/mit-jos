@@ -43,10 +43,10 @@
 	jmp _alltraps
 
 #define TH(n) \
-TRAPHANDLER_NOEC(handler##n, n)
+TRAPHANDLER_NOEC(__handler##n##__, n)
 
 #define THE(n) \
-TRAPHANDLER(handler##n, n)
+TRAPHANDLER(__handler##n##__, n)
 
 .text
 
@@ -72,6 +72,12 @@ THE(17)
 TH(18)
 TH(19)
 TH(48)
+
+TH(32)
+TH(33)
+TH(36)
+TH(39)
+TH(46)
 
 /*
  * Lab 3: Your code here for _alltraps
