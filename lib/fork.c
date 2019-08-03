@@ -21,6 +21,8 @@ extern void _pgfault_upcall(void);
 static void
 pgfault(struct UTrapframe *utf)
 {
+#define PANIC panic("page fault handler: %e", r)
+
 	void *addr = (void *) utf->utf_fault_va;
 	uint32_t err = utf->utf_err;
 	int r;
@@ -33,13 +35,18 @@ pgfault(struct UTrapframe *utf)
 
 	// LAB 4: Your code here.
     envid_t eid;
-    pte_t pte;
     
     eid = sys_getenvid();
-    pte = uvpt[(uint32_t)addr / PGSIZE];
     addr = ROUNDDOWN(addr, PGSIZE);
 
-    if (!(err & FEC_WR) || !(pte & PTE_COW))
+    if (!(
+            (uvpd[PDX(addr)] & PTE_P) && 
+            (uvpt[PGNUM(addr)] & PTE_P) && 
+            (uvpt[PGNUM(addr)] & PTE_U) && 
+            (uvpt[PGNUM(addr)] & PTE_COW) && 
+            (err & FEC_WR) && 
+            1
+        ))
         panic(
             "[0x%08x] user page fault va 0x%08x ip 0x%08x\n"
             "[%s, %s, %s]",
@@ -51,7 +58,6 @@ pgfault(struct UTrapframe *utf)
             err & 1 ? "protection" : "not-present"
         );
 
-#define PANIC panic("page fault handler: %e", r)
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
 	// page to the old page's address.
@@ -68,6 +74,7 @@ pgfault(struct UTrapframe *utf)
         PANIC;
     return;
 	// panic("pgfault not implemented");
+
 #undef PANIC
 }
 
@@ -129,13 +136,17 @@ duppage(envid_t envid, unsigned pn)
 envid_t
 fork(void)
 {
+#define PANIC panic("fork: %e", r)
 	// LAB 4: Your code here.
 	// panic("fork not implemented");
     int r;
     envid_t ceid;
-#define PANIC panic("fork: %e", r)
+
     set_pgfault_handler(pgfault);
-    if (ceid = sys_exofork(), ceid > 0) {
+    
+    if (ceid = sys_exofork(), ceid == 0) {
+        thisenv = &envs[ENVX(sys_getenvid())];
+    } else if (ceid > 0) {
         // assume UTOP == UXSTACKTOP
         for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
             uint32_t pde = uvpd[pn / NPDENTRIES];
@@ -159,6 +170,7 @@ fork(void)
             PANIC;
     }
     return ceid;
+
 #undef PANIC
 }
 
