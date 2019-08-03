@@ -87,6 +87,12 @@ THE(17)
 TH(18)
 TH(19)
 TH(48)
+
+TH(32)
+TH(33)
+TH(36)
+TH(39)
+TH(46)
 #undef THE
 #undef TH
 
@@ -112,6 +118,12 @@ THE(17)
 TH(18)
 TH(19)
 TH(48)
+
+TH(32)
+TH(33)
+TH(36)
+TH(39)
+TH(46)
 };
 #undef THE
 #undef TH
@@ -123,6 +135,8 @@ trap_init(void)
 
 	// LAB 3: Your code here.
     for (int i = 0; i < 32; ++i) 
+        SETGATE(idt[i], 0, GD_KT, handlers[i], 0);
+    for (int i = IRQ_OFFSET; i < IRQ_OFFSET + 16; ++i)
         SETGATE(idt[i], 0, GD_KT, handlers[i], 0);
     SETGATE(idt[T_BRKPT], 0, GD_KT, handlers[T_BRKPT], 3);
     SETGATE(idt[T_SYSCALL], 0, GD_KT, handlers[T_SYSCALL], 3);
@@ -287,6 +301,11 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle clock interrupts. Don't forget to acknowledge the
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
+    if (tf->tf_trapno == IRQ_OFFSET + IRQ_TIMER) {
+        lapic_eoi();
+        sched_yield();
+        return;
+    }
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
