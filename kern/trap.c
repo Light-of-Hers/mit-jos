@@ -66,7 +66,7 @@ static const char *trapname(int trapno)
 	return "(unknown trap)";
 }
 
-#define TH(n) extern void handler##n (void);
+#define TH(n) extern void __handler##n##__ (void);
 #define THE(n) TH(n)
 TH(0)
 TH(1)
@@ -96,7 +96,7 @@ TH(46)
 #undef THE
 #undef TH
 
-#define TH(n) [n] = handler##n,
+#define TH(n) [n] = __handler##n##__,
 #define THE(n) TH(n)
 static void (* handlers[256])(void) = {
 TH(0)
@@ -134,6 +134,7 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.
+    // all set interrupt gate instead of the trap gate to disable external interrupt
     for (int i = 0; i < 32; ++i) 
         SETGATE(idt[i], 0, GD_KT, handlers[i], 0);
     for (int i = IRQ_OFFSET; i < IRQ_OFFSET + 16; ++i)

@@ -281,6 +281,7 @@ sys_page_unmap(envid_t envid, void *va)
 }
 #undef CHECK_SYSCALL_PERM
 #undef CHECK_ALIGIN_UVA
+
 // Try to send 'value' to the target env 'envid'.
 // If srcva < UTOP, then also send page currently mapped at 'srcva',
 // so that receiver gets a duplicate mapping of the same page.
