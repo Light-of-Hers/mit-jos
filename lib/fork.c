@@ -2,10 +2,17 @@
 
 #include <inc/string.h>
 #include <inc/lib.h>
+#include <inc/log.h>
+#include <inc/assert.h>
 
 // PTE_COW marks copy-on-write page table entries.
 // It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
 #define PTE_COW		0x800
+
+extern volatile pde_t uvpd[];
+extern volatile pte_t uvpt[];
+extern void _pgfault_upcall(void);
+
 
 //
 // Custom page fault handler - if faulting page is copy-on-write,
@@ -14,6 +21,8 @@
 static void
 pgfault(struct UTrapframe *utf)
 {
+#define PANIC panic("page fault handler: %e", r)
+
 	void *addr = (void *) utf->utf_fault_va;
 	uint32_t err = utf->utf_err;
 	int r;
@@ -25,6 +34,29 @@ pgfault(struct UTrapframe *utf)
 	//   (see <inc/memlayout.h>).
 
 	// LAB 4: Your code here.
+    envid_t eid;
+    
+    eid = sys_getenvid();
+    addr = ROUNDDOWN(addr, PGSIZE);
+
+    if (!(
+            (uvpd[PDX(addr)] & PTE_P) && 
+            (uvpt[PGNUM(addr)] & PTE_P) && 
+            (uvpt[PGNUM(addr)] & PTE_U) && 
+            (uvpt[PGNUM(addr)] & PTE_COW) && 
+            (err & FEC_WR) && 
+            1
+        ))
+        panic(
+            "[0x%08x] user page fault va 0x%08x ip 0x%08x\n"
+            "[%s, %s, %s]",
+            eid,
+            utf->utf_fault_va,
+            utf->utf_eip,
+            err & 4 ? "user" : "kernel",
+            err & 2 ? "write" : "read",
+            err & 1 ? "protection" : "not-present"
+        );
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
@@ -33,8 +65,17 @@ pgfault(struct UTrapframe *utf)
 	//   You should make three system calls.
 
 	// LAB 4: Your code here.
+    if (r = sys_page_alloc(eid, PFTEMP, PTE_P | PTE_U | PTE_W), r < 0)
+        PANIC;
+    memmove(PFTEMP, addr, PGSIZE);
+    if (r = sys_page_map(eid, PFTEMP, eid, addr, PTE_P | PTE_U | PTE_W), r < 0)
+        PANIC;
+    if (r = sys_page_unmap(eid, PFTEMP), r < 0)
+        PANIC;
+    return;
+	// panic("pgfault not implemented");
 
-	panic("pgfault not implemented");
+#undef PANIC
 }
 
 //
@@ -51,10 +92,28 @@ pgfault(struct UTrapframe *utf)
 static int
 duppage(envid_t envid, unsigned pn)
 {
-	int r;
-
 	// LAB 4: Your code here.
-	panic("duppage not implemented");
+	// panic("duppage not implemented");
+    int r;
+    envid_t peid;
+    void *pg;
+    pte_t pte;
+
+    peid = sys_getenvid();
+    pg = (void*)(pn * PGSIZE);
+    pte = uvpt[pn];
+
+    assert(pte & PTE_P && pte & PTE_U);
+    if (pte & PTE_W || pte & PTE_COW) {
+        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+            return r;
+        if (r = sys_page_map(peid, pg, peid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+            return r;
+    } else {
+        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U), r < 0)
+            return r;
+    }
+
 	return 0;
 }
 
@@ -77,8 +136,42 @@ duppage(envid_t envid, unsigned pn)
 envid_t
 fork(void)
 {
+#define PANIC panic("fork: %e", r)
 	// LAB 4: Your code here.
-	panic("fork not implemented");
+	// panic("fork not implemented");
+    int r;
+    envid_t ceid;
+
+    set_pgfault_handler(pgfault);
+    
+    if (ceid = sys_exofork(), ceid == 0) {
+        thisenv = &envs[ENVX(sys_getenvid())];
+    } else if (ceid > 0) {
+        // assume UTOP == UXSTACKTOP
+        for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
+            uint32_t pde = uvpd[pn / NPDENTRIES];
+            if (!(pde & PTE_P)) {
+                pn += NPDENTRIES;
+            } else {
+                size_t next = MIN(UTOP / PGSIZE - 1, pn + NPDENTRIES);
+                for (; pn < next; ++pn) {
+                    uint32_t pte = uvpt[pn];
+                    if (pte & PTE_P && pte & PTE_U)
+                        if (r = duppage(ceid, pn), r < 0)
+                            PANIC;
+                }
+            }
+        }
+        if (r = sys_page_alloc(ceid, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W), r < 0)
+            PANIC;
+        if (r = sys_env_set_pgfault_upcall(ceid, _pgfault_upcall), r < 0)
+            PANIC;
+        if (r = sys_env_set_status(ceid, ENV_RUNNABLE), r < 0)
+            PANIC;
+    }
+    return ceid;
+
+#undef PANIC
 }
 
 // Challenge!
