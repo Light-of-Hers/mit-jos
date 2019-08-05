@@ -15,6 +15,8 @@
 // Return the file data page for file descriptor index i
 #define INDEX2DATA(i)	((char*) (FILEDATA + (i)*PGSIZE))
 
+extern volatile pde_t uvpd[];
+extern volatile pte_t uvpt[];
 
 // --------------------------------------------------------------
 // File descriptor manipulators

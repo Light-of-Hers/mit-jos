@@ -75,6 +75,8 @@ KERN_BINFILES +=	user/idle \
 			user/faultnostack \
 			user/faultbadhandler \
 			user/faultevilhandler \
+            user/faultxstackoverflow \
+            user/forkbomb \
 			user/forktree \
 			user/sendpage \
 			user/spin \
