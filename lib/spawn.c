@@ -11,6 +11,9 @@ static int map_segment(envid_t child, uintptr_t va, size_t memsz,
 		       int fd, size_t filesz, off_t fileoffset, int perm);
 static int copy_shared_pages(envid_t child);
 
+extern volatile pde_t uvpd[];
+extern volatile pte_t uvpt[];
+
 // Spawn a child process from a program image loaded from the file system.
 // prog: the pathname of the program to run.
 // argv: pointer to null-terminated array of pointers to strings,
@@ -302,6 +305,22 @@ static int
 copy_shared_pages(envid_t child)
 {
 	// LAB 5: Your code here.
+    int r;
+    uintptr_t addr;
+
+    for (addr = 0; addr < UTOP;) {
+        if (!(uvpd[PDX(addr)] & PTE_P)) {
+            addr = (uintptr_t)PGADDR(PDX(addr) + 1, PTX(addr), PGOFF(addr));
+        } else {
+            uintptr_t next = MIN((uintptr_t)PGADDR(PDX(addr) + 1, PTX(addr), PGOFF(addr)), UTOP);
+            for (; addr < next; addr += PGSIZE) {
+                pte_t pte = uvpt[PGNUM(addr)];
+                if (pte & PTE_P && pte & PTE_U && pte & PTE_SHARE)
+                    if (r = sys_page_map(0, (void*)addr, child, (void*)addr, pte & PTE_SYSCALL), r < 0)
+                        return r;
+            }
+        }
+    }
 	return 0;
 }
 

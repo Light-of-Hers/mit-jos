@@ -34,9 +34,6 @@ pgfault(struct UTrapframe *utf)
 	//   (see <inc/memlayout.h>).
 
 	// LAB 4: Your code here.
-    envid_t eid;
-    
-    eid = sys_getenvid();
     addr = ROUNDDOWN(addr, PGSIZE);
 
     if (!(
@@ -50,7 +47,7 @@ pgfault(struct UTrapframe *utf)
         panic(
             "[0x%08x] user page fault va 0x%08x ip 0x%08x\n"
             "[%s, %s, %s]",
-            eid,
+            sys_getenvid(),
             utf->utf_fault_va,
             utf->utf_eip,
             err & 4 ? "user" : "kernel",
@@ -65,12 +62,12 @@ pgfault(struct UTrapframe *utf)
 	//   You should make three system calls.
 
 	// LAB 4: Your code here.
-    if (r = sys_page_alloc(eid, PFTEMP, PTE_P | PTE_U | PTE_W), r < 0)
+    if (r = sys_page_alloc(0, PFTEMP, PTE_P | PTE_U | PTE_W), r < 0)
         PANIC;
     memmove(PFTEMP, addr, PGSIZE);
-    if (r = sys_page_map(eid, PFTEMP, eid, addr, PTE_P | PTE_U | PTE_W), r < 0)
+    if (r = sys_page_map(0, PFTEMP, 0, addr, PTE_P | PTE_U | PTE_W), r < 0)
         PANIC;
-    if (r = sys_page_unmap(eid, PFTEMP), r < 0)
+    if (r = sys_page_unmap(0, PFTEMP), r < 0)
         PANIC;
     return;
 	// panic("pgfault not implemented");
@@ -95,22 +92,20 @@ duppage(envid_t envid, unsigned pn)
 	// LAB 4: Your code here.
 	// panic("duppage not implemented");
     int r;
-    envid_t peid;
     void *pg;
     pte_t pte;
 
-    peid = sys_getenvid();
     pg = (void*)(pn * PGSIZE);
     pte = uvpt[pn];
 
     assert(pte & PTE_P && pte & PTE_U);
-    if (pte & PTE_W || pte & PTE_COW) {
-        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+    if ((pte & PTE_W && !(pte & PTE_SHARE)) || pte & PTE_COW) {
+        if (r = sys_page_map(0, pg, envid, pg, (pte & PTE_SYSCALL & ~PTE_W) | PTE_COW), r < 0)
             return r;
-        if (r = sys_page_map(peid, pg, peid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+        if (r = sys_page_map(0, pg, 0, pg, (pte & PTE_SYSCALL & ~PTE_W) | PTE_COW), r < 0)
             return r;
     } else {
-        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U), r < 0)
+        if (r = sys_page_map(0, pg, envid, pg, pte & PTE_SYSCALL), r < 0)
             return r;
     }
 
