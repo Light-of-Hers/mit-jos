@@ -13,6 +13,7 @@
 #include <kern/console.h>
 #include <kern/sched.h>
 #include <kern/time.h>
+#include <kern/e1000.h>
 
 // Print a string to the system console.
 // The string is exactly 'len' characters long.
@@ -424,7 +425,14 @@ static int
 sys_time_msec(void)
 {
 	// LAB 6: Your code here.
-	panic("sys_time_msec not implemented");
+	// panic("sys_time_msec not implemented");
+    return time_msec();
+}
+
+static int 
+sys_net_transmit(const char* buf, size_t size) {
+    user_mem_assert(curenv, buf, size, PTE_U);
+    return e1000_transmit(buf, size);    
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -481,6 +489,12 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     } 
     case SYS_ipc_recv: {
         return sys_ipc_recv((void*)a1);
+    }
+    case SYS_time_msec: {
+        return sys_time_msec();
+    }
+    case SYS_net_transmit: {
+        return sys_net_transmit((const char *)a1, (size_t)a2);
     }
 	default:
 		return -E_INVAL;

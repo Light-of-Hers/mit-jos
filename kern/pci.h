@@ -17,8 +17,8 @@ struct pci_func {
     uint32_t dev_id;
     uint32_t dev_class;
 
-    uint32_t reg_base[6];
-    uint32_t reg_size[6];
+    uint32_t reg_base[6]; // base address for MMIO, or base IO port
+    uint32_t reg_size[6]; // space size for MMIO, or number of IO ports
     uint8_t irq_line;
 };
 
