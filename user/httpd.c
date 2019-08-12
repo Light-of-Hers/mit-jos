@@ -245,14 +245,8 @@ send_file(struct http_request *req)
 	}
 
 	struct Stat st;
-	if (r = stat(req->url, &st), r < 0) {
-		send_error(req, 404);
-		goto end;
-	}
-
-	if (st.st_isdir) {
-		r = 0;
-		send_error(req, 404);
+	if (r = stat(req->url, &st), r < 0 || st.st_isdir) {
+		r = send_error(req, 404);
 		goto end;
 	}
 
