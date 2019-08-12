@@ -430,9 +430,16 @@ sys_time_msec(void)
 }
 
 static int 
-sys_net_transmit(const char* buf, size_t size) {
-    user_mem_assert(curenv, buf, size, PTE_U);
-    return e1000_transmit(buf, size);    
+sys_net_transmit(const char* buf, size_t len) {
+    user_mem_assert(curenv, buf, len, PTE_U);
+    return e1000_transmit(buf, len);    
+}
+
+static int 
+sys_net_receive(char *buf, size_t len) 
+{
+    user_mem_assert(curenv, buf, len, PTE_U | PTE_W);
+    return e1000_receive(buf, len);
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -495,6 +502,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     }
     case SYS_net_transmit: {
         return sys_net_transmit((const char *)a1, (size_t)a2);
+    }
+    case SYS_net_receive: {
+        return sys_net_receive((char *)a1, (size_t)a2);
     }
 	default:
 		return -E_INVAL;

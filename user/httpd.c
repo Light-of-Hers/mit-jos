@@ -1,4 +1,5 @@
 #include <inc/lib.h>
+#include <inc/log.h>
 #include <lwip/sockets.h>
 #include <lwip/inet.h>
 
@@ -77,7 +78,21 @@ static int
 send_data(struct http_request *req, int fd)
 {
 	// LAB 6: Your code here.
-	panic("send_data not implemented");
+	// panic("send_data not implemented");
+	int r;
+	int rd, wt, tot;
+	char buf[256];
+
+	tot = 0;
+	while (rd = read(fd, buf, sizeof(buf)), rd > 0) {
+		for (wt = 0; wt < rd; ) {
+			if (r = write(req->sock, buf + wt, rd - wt), r < 0)
+				return r;
+			wt += r;
+		}
+		tot += rd;
+	}
+	return rd < 0 ? rd : tot;
 }
 
 static int
@@ -223,7 +238,25 @@ send_file(struct http_request *req)
 	// set file_size to the size of the file
 
 	// LAB 6: Your code here.
-	panic("send_file not implemented");
+	// panic("send_file not implemented");
+	if (fd = open(req->url, O_RDONLY), fd < 0) {
+		send_error(req, 404);
+		return fd;
+	}
+
+	struct Stat st;
+	if (r = stat(req->url, &st), r < 0) {
+		send_error(req, 404);
+		goto end;
+	}
+	
+	if (st.st_isdir) {
+		send_error(req, 404);
+		r = 0;
+		goto end;
+	}
+
+	file_size = st.st_size;
 
 	if ((r = send_header(req, 200)) < 0)
 		goto end;

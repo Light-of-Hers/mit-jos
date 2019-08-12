@@ -74,6 +74,10 @@ sched_halt(void)
 			break;
 	}
 	if (i == NENV) {
+        for (i = 0; i < NENV; ++i) {
+            if (envs[i].env_status == ENV_NOT_RUNNABLE)
+                env_destroy(&envs[i]);
+        }
 		cprintf("No runnable environments in the system!\n");
 		while (1)
 			monitor(NULL);
