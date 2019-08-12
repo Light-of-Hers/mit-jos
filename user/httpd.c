@@ -249,10 +249,10 @@ send_file(struct http_request *req)
 		send_error(req, 404);
 		goto end;
 	}
-	
+
 	if (st.st_isdir) {
-		send_error(req, 404);
 		r = 0;
+		send_error(req, 404);
 		goto end;
 	}
 
