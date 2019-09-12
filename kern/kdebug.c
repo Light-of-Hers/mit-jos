@@ -76,6 +76,8 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 			// exact match for 'addr', but continue loop to find
 			// *region_right
 			*region_left = m;
+			// l = m;
+			// addr++;
 			l = m + 1;
 		}
 	}
