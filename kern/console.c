@@ -157,10 +157,8 @@ cga_init(void)
 	crt_pos = pos;
 }
 
-
-
 static void
-cga_putc(int c)
+cga_putc1(int c)
 {
 	// if no attribute given, then use black on white
 	if (!(c & ~0xFF))
@@ -202,10 +200,102 @@ cga_putc(int c)
 	}
 
 	/* move that little blinky thing */
+	/* just move the cursor */
 	outb(addr_6845, 14);
 	outb(addr_6845 + 1, crt_pos >> 8);
 	outb(addr_6845, 15);
 	outb(addr_6845 + 1, crt_pos);
+}
+
+static int 
+atoi(const char* s)
+{
+	int res = 0;
+	int end = 0;
+	for (int i = 0; isdigit(s[i]); ++i)
+		res = res * 10 + (s[i] - '0');
+	return res;
+}
+
+static void
+handle_ansi_esc_seq(const char* buf, int len, int* attr)
+{
+	// white is light gray
+	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
+	int tmp_attr = *attr;
+	int n = atoi(buf);
+	if (n >= 30 && n <= 37) {
+		tmp_attr = (tmp_attr & ~(0x0f)) | ansi2cga[n - 30];
+	} else if (n >= 40 && n <= 47) {
+		tmp_attr = (tmp_attr & ~(0xf0)) | (ansi2cga[n - 40] << 4);
+	} else if (n == 0) {
+		tmp_attr = 0x07;
+	}
+	*attr = tmp_attr;
+}
+
+#define ESC_BUFSZ 16
+static void 
+cga_putc(int c)
+{
+	static int state = 0;
+	static char esc_buf[ESC_BUFSZ];
+	static int esc_len = 0;
+	static int attr = 0x07; // cga text mode attribute.
+	static int esc_attr = 0;
+
+	switch(state) {
+	case 0: {
+		if ((char)c == '\033') {
+			state = 1;
+		} else {
+			cga_putc1((attr << 8) | (c & 0xff));
+		}
+		break;
+	}
+	case 1: {
+		if ((char)c == '[') {
+			esc_attr = attr;
+			state = 2;
+		} else if ((char)c != '\033') {
+			state = 0;
+		}
+		break;
+	}
+	case 2: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+			state = 3;
+		} else {
+			esc_len = 0;
+
+			state = 0;
+		}
+		break;
+	}
+	case 3: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+		} else if ((char)c == ';') {
+			esc_buf[esc_len++] = ';';
+			handle_ansi_esc_seq(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+
+			state = 2;
+		} else if ((char)c == 'm') {
+			esc_buf[esc_len++] = ';';
+			handle_ansi_esc_seq(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+
+			attr = esc_attr;
+			state = 0;
+		} else {
+			esc_len = 0;
+
+			state = 0;
+		}
+	}
+	}
 }
 
 
