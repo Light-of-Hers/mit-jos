@@ -99,7 +99,9 @@ movw	$0x1234,0x472			# warm boot
 ```
 ljmp    $PROT_MODE_CSEG, $protcseg
 ```
-因为`protcseg`不是位置无关代码（position indepandent code）。该地址在链接时确定，但是BIOS将bootloader加载到的地址却是固定的（0x7c00）。因此若改变了链接地址，会导致该指令跳转到错误的位置
+因为`protcseg`不是位置无关代码（position indepandent code）。该地址在链接时确定，但是BIOS将bootloader加载到的地址却是固定的（0x7c00）。因此若改变了链接地址，会导致该指令跳转到错误的位置。
+
+当然，事实上之前的`lgdt　gdtdesc`指令也会加载错误位置的`GDT`，但是影响并没有`ljmp`这样快而直接。
 
 ---
 ## Exercise 6
@@ -329,6 +331,7 @@ bootstacktop:
 ```
 在`monitor`添加函数：
 ```C
+
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
@@ -338,6 +341,7 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 
     cprintf("Stack backtrace:\n");
 
+	// backtrace the ebp chain
     for(ebp = read_ebp(); ebp != 0; ebp = *(uint32_t*)(ebp)) {
         cprintf("  ebp %08x", ebp);
         eip = *((uint32_t*)ebp + 1);
@@ -348,6 +352,8 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
             cprintf(" %08x", arg);
         }
         cprintf("\n");
+
+		// get eip info
         debuginfo_eip(eip, &info);
         cprintf("         %s:%d: %.*s+%u\n", 
             info.eip_file, 
@@ -364,21 +370,36 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 ```C
 // Your code here.
 stab_binsearch(stabs, &lline, &rline, N_SLINE, addr);
+if (lline > rline)
+    return -1;
 info->eip_line = stabs[lline].n_desc;
 ```
 
----
+
+
+## This completes the lab-1
+
+```
+running JOS: (0.7s) 
+  printf: OK 
+  backtrace count: OK 
+  backtrace arguments: OK 
+  backtrace symbols: OK 
+  backtrace lines: OK 
+Score: 50/50
+```
+
 ## Challenge
 
 采用ANSI ESC Sequence嵌入来实现彩色字体的显示，如：
 
 ```C
-"Hello World" => "\033[<FG>;<BG>mHello World\033[0m"
+"Hello World" => "\033[<Param1>;<Param2>;...mHello World\033[0m"
 ```
 
-其中`<FG> <BG>`为前景色，背景色序号：
+其中`<ParamN>`为参数，其中决定颜色的参数为：（参见http://rrbrandt.dee.ufcg.edu.br/en/docs/ansi/）
 
-| 颜色 | 前景序号 | 背景序号 |
+| 颜色 | 前景 | 背景 |
 |-----|---------|---------|
 |黑   |30       |40       |
 |红   |31       |41       |
@@ -389,7 +410,207 @@ info->eip_line = stabs[lline].n_desc;
 |青   |36       |46       |
 |白   |37       |47       |
 
-在`stdio.h`中加入颜色设置接口：
+`cga_putc`函数（打印到Qemu的console）暂时不会处理ANSI Escape Sequence，而`serial_putc`函数（打印到用户Terminal）会处理。这就导致了两者的打印内容的差异。因此要先修改`cga_putc`以改变VGA的输出行为。
+
+在VGA的text-mode下，buffer中填充的数据的位域构成如下（参见https://os.phil-opp.com/vga-text-mode/）：
+
+![深度截图_选择区域_20190912181453](assets/深度截图_选择区域_20190912181453.png)
+
+其中color部分数值对应的颜色为：
+
+![深度截图_选择区域_20190912181458](assets/深度截图_选择区域_20190912181458.png)
+
+因此修改`console.c`的`cga_putc`函数：
+
+```C 
+
+// Old cga_putc
+static void
+cga_putc1(int c)
+{
+	// if no attribute given, then use black on white
+	if (!(c & ~0xFF))
+		c |= 0x0700;
+
+	switch (c & 0xff) {
+	case '\b':
+		if (crt_pos > 0) {
+			crt_pos--;
+			crt_buf[crt_pos] = (c & ~0xff) | ' ';
+		}
+		break;
+	case '\n':
+		crt_pos += CRT_COLS;
+		/* fallthru */
+	case '\r':
+		crt_pos -= (crt_pos % CRT_COLS);
+		break;
+	case '\t':
+		cons_putc(' ');
+		cons_putc(' ');
+		cons_putc(' ');
+		cons_putc(' ');
+		cons_putc(' ');
+		break;
+	default:
+		crt_buf[crt_pos++] = c;		/* write the character */
+		break;
+	}
+
+	// What is the purpose of this?
+	if (crt_pos >= CRT_SIZE) {
+		int i;
+
+		memmove(crt_buf, crt_buf + CRT_COLS, (CRT_SIZE - CRT_COLS) * sizeof(uint16_t));
+		for (i = CRT_SIZE - CRT_COLS; i < CRT_SIZE; i++)
+			crt_buf[i] = 0x0700 | ' ';
+		crt_pos -= CRT_COLS;
+	}
+
+	/* move that little blinky thing */
+	/* just move the cursor */
+	outb(addr_6845, 14);
+	outb(addr_6845 + 1, crt_pos >> 8);
+	outb(addr_6845, 15);
+	outb(addr_6845 + 1, crt_pos);
+}
+
+static int
+isdigit(int c)
+{
+	return c >= '0' && c <= '9';
+}
+
+static int 
+atoi(const char* s)
+{
+	int res = 0;
+	int end = 0;
+	for (int i = 0; isdigit(s[i]); ++i)
+		res = res * 10 + (s[i] - '0');
+	return res;
+}
+
+// Modify the VGA text-mode character attribute 'attr' 
+// based on the parameter contained in the buf.
+static void
+handle_ansi_esc_param(const char* buf, int len, int* attr)
+{
+	// white is light gray
+	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
+	int tmp_attr = *attr;
+	int n = atoi(buf);
+	if (n >= 30 && n <= 37) {
+		tmp_attr = (tmp_attr & ~(0x0f)) | ansi2cga[n - 30];
+	} else if (n >= 40 && n <= 47) {
+		tmp_attr = (tmp_attr & ~(0xf0)) | (ansi2cga[n - 40] << 4);
+	} else if (n == 0) {
+		tmp_attr = 0x07;
+	}
+	*attr = tmp_attr;
+}
+
+// The max length of one parameter.
+// Emmmmmm... no body will input 
+// a number parameter with length of 1023, probably.
+#define ESC_BUFSZ 1024
+
+// If the character is '\033' (esc), then buffer the input
+// until get a whole ANSI Esc Seq (and update the attribute) 
+// or get a false input midway.
+// Otherwise output it normally.
+// 
+// Use a deterministic finite automata:
+// 
+// [0]: '\033'	=> [1]
+// 		other	=> [0] + output the character
+// 
+// [1]: '\033'	=> [1]
+// 		'['		=> [2]
+// 		other	=> [0]
+// 
+// [2]: digit	=> [3] + begin record the modification
+// 		other	=> [0] + discard the modification
+// 
+// [3]: digit	=> [3]
+// 		';'		=> [2] + record the modification of attribute
+// 		'm'		=> [0] + update the attribute
+// 		other 	=> [0] + discard the modification
+// 
+static void 
+cga_putc(int c)
+{
+	static int state = 0;
+	static char esc_buf[ESC_BUFSZ];
+	static int esc_len = 0;
+	static int attr = 0x07; // cga text mode attribute.
+	static int esc_attr = 0;
+
+	switch(state) {
+	case 0: {
+		if ((char)c == '\033') {
+			state = 1;
+		} else {
+			cga_putc1((attr << 8) | (c & 0xff));
+		}
+		break;
+	}
+	case 1: {
+		if ((char)c == '[') {
+			esc_attr = attr;
+			state = 2;
+		} else if ((char)c != '\033') {
+			state = 0;
+		}
+		break;
+	}
+	case 2: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+			state = 3;
+		} else {
+			// discard modification
+			esc_len = 0;
+
+			state = 0;
+		}
+		break;
+	}
+	case 3: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+		} else if ((char)c == ';') {
+			// record current modification
+			esc_buf[esc_len++] = ';';
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+
+			state = 2;
+		} else if ((char)c == 'm') {
+			// update the attribute
+			esc_buf[esc_len++] = ';';
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+			attr = esc_attr;
+
+			state = 0;
+		} else {
+			// discard modification
+			esc_len = 0;
+
+			state = 0;
+		}
+	}
+	}
+}
+
+
+```
+
+这样VGA就支持ANSI Escape Sequence（仅前景、背景色部分，其余参数会被忽略）
+
+为了方便设置颜色，在`stdio.h`中加入颜色设置接口：
+
 ```C
 
 // color enum
@@ -414,89 +635,45 @@ void set_bgcolor(int color);
 void reset_bgcolor();
 
 ```
-在`printf.c`中实现：
+在`printf.c`中实现接口：
 ```C
 
-static int color[2] = {-1, -1};
-#define FG 0
-#define BG 1
-#define BUFSZ 4096
-#define INF 0x7fffffff
-
-static const char* 
-ansi_esc_embed(const char* input)
-{
-	static const char fgbg[] = "34";
-	static const char num[] = "0123456789";
-	static const char esc[] = "\033[";
-	static char buf[BUFSZ];
-	
-	char* bufp = buf;
-
-	bufp += strlcpy(bufp, esc, INF);
-	for (int i = 0; i < 2; ++i) {
-		if (color[i] != -1) {
-			*bufp++ = fgbg[i];
-			*bufp++ = num[color[i]];
-			*bufp++ = ';';
-		}
-	}
-	*(bufp - 1) = 'm';
-	bufp += strlcpy(bufp, input, INF);
-	bufp += strlcpy(bufp, esc, INF);
-	*bufp++ = '0';
-	*bufp++ = 'm';
-	*bufp = '\0';
-
-	return buf;
-}
-
-inline static void 
-set_color(int clr, int fgbg)
-{
-	if (clr >= 0 && clr < COLOR_NUM) {
-		color[fgbg] = clr;
-	}
-}
+static int fgclr = -1;
+static int bgclr = -1;
+static const char numbers[] = "0123456789";
 
 void 
 set_fgcolor(int clr) 
 {
-	set_color(clr, FG);
+	fgclr = clr;
+	cprintf("\033[3%cm", numbers[clr]);
 }
 
 void
 set_bgcolor(int clr)
 {
-	set_color(clr, BG);
+	bgclr = clr;
+	cprintf("\033[4%cm", numbers[clr]);
 }
 
 void 
 reset_fgcolor()
 {
-	color[FG] = -1;
+	cprintf("\033[0m");
+	if (bgclr != -1)
+		cprintf("\033[4%cm", numbers[bgclr]);
+	fgclr = -1;
 }
 
 void 
 reset_bgcolor()
 {
-	color[BG] = -1;
+	cprintf("\033[0m");
+	if (fgclr != -1)
+		cprintf("\033[3%cm", numbers[fgclr]);
+	bgclr = -1;
 }
 
-int
-cprintf(const char *fmt, ...)
-{
-	va_list ap;
-	int cnt;
-	
-	if (color[0] != -1 || color[1] != -1)
-		fmt = ansi_esc_embed(fmt);
-	va_start(ap, fmt);
-	cnt = vcprintf(fmt, ap);
-	va_end(ap);
-
-	return cnt;
-}
 ```
 在`init.c`中添加一些有趣的测试：
 ```C
@@ -523,10 +700,16 @@ test_rainbow()
 ```
 测试效果：
 
-![rainbow](assets/rainbow.png)
++ Qemu Console：
+
+  ![深度截图_选择区域_20190912184954](assets/深度截图_选择区域_20190912184954-1568285452119.png)
+
++ User Terminal：
+
+  ![深度截图_选择区域_20190912185001](assets/深度截图_选择区域_20190912185001.png)
 
 ---
-## Some problem about stab_binsearch
+## Some problem about `stab_binsearch`
 
 当`stabs[m].n_value == addr`时，原始代码的处理感觉有些问题：
 ```C

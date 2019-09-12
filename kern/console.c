@@ -157,6 +157,7 @@ cga_init(void)
 	crt_pos = pos;
 }
 
+// Old cga_putc
 static void
 cga_putc1(int c)
 {
@@ -207,6 +208,12 @@ cga_putc1(int c)
 	outb(addr_6845 + 1, crt_pos);
 }
 
+static int
+isdigit(int c)
+{
+	return c >= '0' && c <= '9';
+}
+
 static int 
 atoi(const char* s)
 {
@@ -217,8 +224,10 @@ atoi(const char* s)
 	return res;
 }
 
+// Modify the VGA text-mode character attribute 'attr' 
+// based on the parameter contained in the buf.
 static void
-handle_ansi_esc_seq(const char* buf, int len, int* attr)
+handle_ansi_esc_param(const char* buf, int len, int* attr)
 {
 	// white is light gray
 	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
@@ -234,7 +243,33 @@ handle_ansi_esc_seq(const char* buf, int len, int* attr)
 	*attr = tmp_attr;
 }
 
-#define ESC_BUFSZ 16
+// The max length of one parameter.
+// Emmmmmm... no body will input 
+// a number parameter with length of 1023, probably.
+#define ESC_BUFSZ 1024
+
+// If the character is '\033' (esc), then buffer the input
+// until get a whole ANSI Esc Seq (and update the attribute) 
+// or get a false input midway.
+// Otherwise output it normally.
+// 
+// Use a deterministic finite automata:
+// 
+// [0]: '\033'	=> [1]
+// 		other	=> [0] + output the character
+// 
+// [1]: '\033'	=> [1]
+// 		'['		=> [2]
+// 		other	=> [0]
+// 
+// [2]: digit	=> [3] + begin record the modification
+// 		other	=> [0] + discard the modification
+// 
+// [3]: digit	=> [3]
+// 		';'		=> [2] + record the modification of attribute
+// 		'm'		=> [0] + update the attribute
+// 		other 	=> [0] + discard the modification
+// 
 static void 
 cga_putc(int c)
 {
@@ -267,6 +302,7 @@ cga_putc(int c)
 			esc_buf[esc_len++] = (char)c;
 			state = 3;
 		} else {
+			// discard modification
 			esc_len = 0;
 
 			state = 0;
@@ -277,19 +313,22 @@ cga_putc(int c)
 		if (isdigit(c)) {
 			esc_buf[esc_len++] = (char)c;
 		} else if ((char)c == ';') {
+			// record current modification
 			esc_buf[esc_len++] = ';';
-			handle_ansi_esc_seq(esc_buf, esc_len, &esc_attr);
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
 
 			state = 2;
 		} else if ((char)c == 'm') {
+			// update the attribute
 			esc_buf[esc_len++] = ';';
-			handle_ansi_esc_seq(esc_buf, esc_len, &esc_attr);
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
-
 			attr = esc_attr;
+
 			state = 0;
 		} else {
+			// discard modification
 			esc_len = 0;
 
 			state = 0;

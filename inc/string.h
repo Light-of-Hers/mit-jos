@@ -22,10 +22,4 @@ void *	memfind(const void *s, int c, size_t len);
 
 long	strtol(const char *s, char **endptr, int base);
 
-int isdigit(int c);
-int isalpha(int c);
-int isalnum(int c);
-int isupper(int c);
-int islower(int c);
-
 #endif /* not JOS_INC_STRING_H */
