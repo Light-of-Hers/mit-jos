@@ -229,7 +229,7 @@ atoi(const char* s)
 static void
 handle_ansi_esc_param(const char* buf, int len, int* attr)
 {
-	// white is light gray
+	// white is light grey
 	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
 	int tmp_attr = *attr;
 	int n = atoi(buf);
@@ -244,7 +244,7 @@ handle_ansi_esc_param(const char* buf, int len, int* attr)
 }
 
 // The max length of one parameter.
-// Emmmmmm... no body will input 
+// Emmmmmm... nobody will input 
 // a number parameter with length of 1023, probably.
 #define ESC_BUFSZ 1024
 
@@ -276,7 +276,7 @@ cga_putc(int c)
 	static int state = 0;
 	static char esc_buf[ESC_BUFSZ];
 	static int esc_len = 0;
-	static int attr = 0x07; // cga text mode attribute.
+	static int attr = 0; // default attribute.
 	static int esc_attr = 0;
 
 	switch(state) {
@@ -314,14 +314,14 @@ cga_putc(int c)
 			esc_buf[esc_len++] = (char)c;
 		} else if ((char)c == ';') {
 			// record current modification
-			esc_buf[esc_len++] = ';';
+			esc_buf[esc_len++] = 0;
 			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
 
 			state = 2;
 		} else if ((char)c == 'm') {
 			// update the attribute
-			esc_buf[esc_len++] = ';';
+			esc_buf[esc_len++] = 0;
 			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
 			attr = esc_attr;
@@ -333,6 +333,7 @@ cga_putc(int c)
 
 			state = 0;
 		}
+		break;
 	}
 	}
 }

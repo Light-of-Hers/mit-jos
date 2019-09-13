@@ -397,7 +397,7 @@ Score: 50/50
 "Hello World" => "\033[<Param1>;<Param2>;...mHello World\033[0m"
 ```
 
-其中`<ParamN>`为参数，其中决定颜色的参数为：（参见http://rrbrandt.dee.ufcg.edu.br/en/docs/ansi/）
+其中`<ParamN>`为参数，其中决定颜色的参数为：（参见 http://rrbrandt.dee.ufcg.edu.br/en/docs/ansi/ ）
 
 | 颜色 | 前景 | 背景 |
 |-----|---------|---------|
@@ -412,13 +412,13 @@ Score: 50/50
 
 `cga_putc`函数（打印到Qemu的console）暂时不会处理ANSI Escape Sequence，而`serial_putc`函数（打印到用户Terminal）会处理。这就导致了两者的打印内容的差异。因此要先修改`cga_putc`以改变VGA的输出行为。
 
-在VGA的text-mode下，buffer中填充的数据的位域构成如下（参见https://os.phil-opp.com/vga-text-mode/）：
+在VGA的text-mode下，buffer中填充的数据的位域构成如下（参见 https://os.phil-opp.com/vga-text-mode/ ）：
 
-![深度截图_选择区域_20190912181453](assets/深度截图_选择区域_20190912181453.png)
+![](assets/vga-text-mode.png)
 
 其中color部分数值对应的颜色为：
 
-![深度截图_选择区域_20190912181458](assets/深度截图_选择区域_20190912181458.png)
+![](assets/vga-color-attr.png)
 
 因此修改`console.c`的`cga_putc`函数：
 
@@ -485,7 +485,6 @@ static int
 atoi(const char* s)
 {
 	int res = 0;
-	int end = 0;
 	for (int i = 0; isdigit(s[i]); ++i)
 		res = res * 10 + (s[i] - '0');
 	return res;
@@ -496,7 +495,7 @@ atoi(const char* s)
 static void
 handle_ansi_esc_param(const char* buf, int len, int* attr)
 {
-	// white is light gray
+	// white is light grey
 	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
 	int tmp_attr = *attr;
 	int n = atoi(buf);
@@ -543,7 +542,7 @@ cga_putc(int c)
 	static int state = 0;
 	static char esc_buf[ESC_BUFSZ];
 	static int esc_len = 0;
-	static int attr = 0x07; // cga text mode attribute.
+	static int attr = 0; // default attribute.
 	static int esc_attr = 0;
 
 	switch(state) {
@@ -581,14 +580,14 @@ cga_putc(int c)
 			esc_buf[esc_len++] = (char)c;
 		} else if ((char)c == ';') {
 			// record current modification
-			esc_buf[esc_len++] = ';';
+			esc_buf[esc_len++] = 0;
 			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
 
 			state = 2;
 		} else if ((char)c == 'm') {
 			// update the attribute
-			esc_buf[esc_len++] = ';';
+			esc_buf[esc_len++] = 0;
 			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
 			esc_len = 0;
 			attr = esc_attr;
@@ -600,6 +599,7 @@ cga_putc(int c)
 
 			state = 0;
 		}
+		break;
 	}
 	}
 }
@@ -607,7 +607,7 @@ cga_putc(int c)
 
 ```
 
-这样VGA就支持ANSI Escape Sequence（仅前景、背景色部分，其余参数会被忽略）
+这样VGA就支持ANSI Escape Sequence了。除了只会接受数字参数（最长为1023，虽然并没有这么长的数字参数……），只会处理颜色参数（前景色、背景色）和重置参数之外，其余行为与bash的行为一致，如后出现的参数会覆盖之前出现的与其不相容的参数（例如后出现的前景色会覆盖前出现的前景色）等。
 
 为了方便设置颜色，在`stdio.h`中加入颜色设置接口：
 
@@ -702,11 +702,11 @@ test_rainbow()
 
 + Qemu Console：
 
-  ![深度截图_选择区域_20190912184954](assets/深度截图_选择区域_20190912184954-1568285452119.png)
+  ![](assets/cons-output.png)
 
 + User Terminal：
 
-  ![深度截图_选择区域_20190912185001](assets/深度截图_选择区域_20190912185001.png)
+  ![](assets/serial-output.png)
 
 ---
 ## Some problem about `stab_binsearch`
