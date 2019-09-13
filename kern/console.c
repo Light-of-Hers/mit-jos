@@ -218,7 +218,6 @@ static int
 atoi(const char* s)
 {
 	int res = 0;
-	int end = 0;
 	for (int i = 0; isdigit(s[i]); ++i)
 		res = res * 10 + (s[i] - '0');
 	return res;
