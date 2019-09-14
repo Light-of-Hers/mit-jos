@@ -167,9 +167,11 @@ cga_putc1(int c)
 
 	switch (c & 0xff) {
 	case '\b':
+		// Change the behavior of backspace to support character insert.
+		// Maintain the character in `crt_pos`.
 		if (crt_pos > 0) {
 			crt_pos--;
-			crt_buf[crt_pos] = (c & ~0xff) | ' ';
+			// crt_buf[crt_pos] = (c & ~0xff) | ' ';
 		}
 		break;
 	case '\n':
@@ -592,6 +594,7 @@ getchar(void)
 {
 	int c;
 
+	// polling
 	while ((c = cons_getc()) == 0)
 		/* do nothing */;
 	return c;

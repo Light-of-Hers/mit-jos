@@ -1,5 +1,7 @@
 # JOS Lab1 Report
 
+陈仁泽 1700012774
+
 [TOC]
 
 ## Exercise 1
@@ -401,14 +403,14 @@ Score: 50/50
 
 | 颜色 | 前景 | 背景 |
 |-----|---------|---------|
-|黑   |30       |40       |
-|红   |31       |41       |
-|绿   |32       |42       |
-|黄   |33       |43       |
-|蓝   |34       |44       |
-|紫   |35       |45       |
-|青   |36       |46       |
-|白   |37       |47       |
+|Black   |30       |40       |
+|Red   |31       |41       |
+|Green   |32       |42       |
+|Yellow   |33       |43       |
+|Blue   |34       |44       |
+|Magenta   |35       |45       |
+|Cyan   |36       |46       |
+|White (Light gray)   |37       |47       |
 
 `cga_putc`函数（打印到Qemu的console）暂时不会处理ANSI Escape Sequence，而`serial_putc`函数（打印到用户Terminal）会处理。这就导致了两者的打印内容的差异。因此要先修改`cga_putc`以改变VGA的输出行为。
 
@@ -422,7 +424,7 @@ Score: 50/50
 
 因此修改`console.c`的`cga_putc`函数：
 
-```C 
+```C
 
 // Old cga_putc
 static void
@@ -709,7 +711,7 @@ test_rainbow()
   ![](assets/serial-output.png)
 
 ---
-## Some problem about `stab_binsearch`
+## Some problems about `stab_binsearch`
 
 当`stabs[m].n_value == addr`时，原始代码的处理感觉有些问题：
 ```C
@@ -742,3 +744,254 @@ for (l = *region_right;
 *region_left = l;
 ```
 个人感觉也不是必要的，因为前面的循环（修改后）已经保证`*region_left + 1`和`*region_right`之间没有符合`type`的symbol了
+
+
+
+## Some extension of the console/serial input
+
+感觉qemu-console和user-terminal的键盘输入不是很舒服，主要有两点：
+
+1. user-terminal的backspace只会回退光标，不会删除字符；而且backspace过多让光标回退到prompt之前……和qemu-console的行为不一致。
+2. 无法左右移动光标以在输入字符串中间进行插入和删除。
+
+因此针对这两点对`readline`函数进行改进（会涉及到一处对`cga_putc`函数的修改）
+
+
+
+### Backspace
+
+- user-terminal的backspace只会回退光标，而qemu-console的backspace同时还会删除字符，两者行为不一致。因为我们只是单纯地将输入信息通过串行总线传给user-terminal，对于输入的处理以及显示是由user-terminal内部完成的，因此应将user-terminal的行为视为标准（而且这样仅回退不删除的行为也有利于后续光标移动的实现）：
+
+  - 修改`cga_putc`（严格来说是`cga_putc1`，因为之前challenge的修改）中对backspace`'\b'`的处理：
+
+    ```C
+    	case '\b':
+    		// Change the behavior of backspace to support character insert.
+    		// Maintain the character in `crt_pos`.
+    		if (crt_pos > 0) {
+    			crt_pos--;
+    			// crt_buf[crt_pos] = (c & ~0xff) | ' ';
+    		}
+    		break;
+    ```
+
+  - 将（在输入字符串尾部）退格的操作实现为：
+
+    ```C
+    cputchar('\b'), cputchar(' '), cputchar('\b');
+    ```
+
+- user-terminal的backspace甚至会让光标回退到prompt之前。在gdb上截获输入的字符，发现在（我的）user-terminal上输入backspace得到的字符是`DEL(0x7f)`，比空格`' '`的ASCII码更大。也就是说在原始版本的`readline`中，当`i == 0`时，在user-terminal输入backspace虽然不会进入到处理退格的语句中（判断条件为`(c == '\b' || c == '\x7f') && i > 0`），但是会进入到正常回显字符的语句中（判断条件为`c >= ' ' && i < BUFLEN - 1`），因此将正常回显字符的判断条件改为：
+
+  ```C 
+  c >= ' ' && c <= '~' && i < BUFLEN - 1
+  ```
+
+
+
+### Cursor movement
+
+1. 首先应知道左右方向键的输入是什么。经查阅资料（ https://stackoverflow.com/questions/22397289/finding-the-values-of-the-arrow-keys-in-python-why-are-they-triples , https://www.ascii-code.com/ ）以及在gdb上截获输入字符，发现user-terminal和qemu-console输入方向键得到的字符不一样：
+   - user-terminal为一个escape sequence：
+     - left arrow: `'0x1b','[','D'`
+     - right arrow: `'0x1b', '[', 'C'`
+   - qemu-terminal为一个extended ASCII code：
+     - left arrow: 228
+     - right arrow: 229
+   
+2. qemu-console（`kbd_intr`）会无视ESC的输入，而user-terminal不会输入extended ASCII code。因此对两种情况分别处理，不会有冲突。
+
+3. 为了不破坏封装性，因此仅对`readline.c`进行修改，仅以`getchar`和`cputchar`函数为与底层交互的接口。采用最直接的单buffer算法，每次插入/删除字符都要进行buffer的拷贝移动并将更新的部分（以及之后的部分）重新flush到display上，单次操作的平均复杂度为O(N)，不过因为本身输入的量很少（buffer的大小只有1024 Byte，平时的终端输入更是不会超过50 Byte），所以使用起来并没有延迟感。代码如下：
+
+   ```C
+   #include <inc/stdio.h>
+   #include <inc/error.h>
+   #include <inc/string.h>
+   
+   // Handle the extended ASCII code inputed by console
+   inline static void handle_ext_ascii(int c);
+   // Handle the escape sequence inputed by serial (user-terminal)
+   inline static void handle_esc_seq();
+   
+   // Move the cursor right
+   inline static void move_right();
+   // Move the cursor left
+   inline static void move_left();
+   
+   // Flush buffer's [cur, tail) to the displays
+   // and move the cursor back
+   inline static void flush_buf();
+   
+   // Insert char to current cursor
+   inline static void insert_char(int c);
+   // Remove current cursor's char
+   inline static void remove_char();
+   // Terminate the input
+   inline static void end_input();
+   
+   #define BUFLEN 1024
+   static char buf[BUFLEN];
+   
+   // Current position of cursor
+   static int cur;
+   // Tail of buffer
+   static int tail;
+   
+   static int echoing;
+   
+   char *
+   readline(const char *prompt)
+   {
+   	int c;
+   
+   	if (prompt != NULL)
+   		cprintf("%s", prompt);
+   
+   	cur = tail = 0;
+   	echoing = iscons(0);
+   	while (1) {
+   		c = getchar();
+   		if (c < 0) {
+   			cprintf("read error: %e\n", c);
+   			return NULL;
+   		} else if ((c == '\b' || c == '\x7f') && cur > 0) {
+   			remove_char();
+   		} else if (c >= ' ' && c <= '~' && tail < BUFLEN-1) {
+   			// Must have c <= '~',
+   			// because DEL(0x7f) is larger than '~'
+   			// and it will be inputed when you push
+   			// 'backspace' in user-terminal
+   			insert_char(c);
+   		} else if (c == '\n' || c == '\r') {
+   			end_input();
+   			return buf;
+   		} else if (c == '\x1b') {
+   			handle_esc_seq(); // only serial will input esc
+   		} else if (c > '\x7f') {
+   			handle_ext_ascii(c); // only console will input extended ascii
+   		}
+   	}
+   }
+   
+   inline static void 
+   flush_buf()
+   {
+   	for (int i = cur; i < tail; ++i)
+   		cputchar(buf[i]);
+   	for (int i = cur; i < tail; ++i)
+   		cputchar('\b'); // cursor move back
+   }
+   
+   inline static void 
+   insert_char(int c) 
+   {
+   	if (cur == tail) {
+   		tail++, buf[cur++] = c;
+   		if (echoing)
+   			cputchar(c);
+   	} else { // general case
+   		memmove(buf + cur + 1, buf + cur, tail - cur);
+   		buf[cur] = c, tail++;
+   		if (echoing) 
+   			flush_buf();
+   		move_right();
+   	}
+   }
+   
+   inline static void 
+   remove_char()
+   {
+   	if (cur == tail) {
+   		cur--, tail--;
+   		if (echoing)
+   			cputchar('\b'), cputchar(' '), cputchar('\b');
+   	} else { // general case
+   		memmove(buf + cur - 1, buf + cur, tail - cur);
+   		buf[tail - 1] = ' ';
+   		move_left();
+   		if (echoing)
+   			flush_buf();
+   		tail--;
+   	}
+   }
+   
+   inline static void 
+   move_left()
+   {
+   	if (cur > 0) {
+   		if (echoing)
+   			cputchar('\b');
+   		cur--;
+   	}
+   }
+   
+   inline static void 
+   move_right()
+   {
+   	if (cur < tail) {
+   		if (echoing)
+   			cputchar(buf[cur]);
+   		cur++;
+   	}
+   }
+   
+   inline static void 
+   end_input()
+   {
+   	if (echoing) {
+   		for (; cur < tail; cputchar(buf[cur++]))
+   			/* move the cursor to the tail */;
+   		cputchar('\n');
+   	}
+   	cur = tail;
+   	buf[tail] = 0;
+   }
+   
+   #define EXT_ASCII_LF 228
+   #define EXT_ASCII_RT 229
+   #define EXT_ASCII_UP 226
+   #define EXT_ASCII_DN 227
+   
+   inline static void 
+   handle_ext_ascii(int c)
+   {
+   	switch(c) {
+   	case EXT_ASCII_LF:
+   		move_left();
+   		return;
+   	case EXT_ASCII_RT: 
+   		move_right();
+   		return;
+   	}
+   	insert_char(c);
+   }
+   
+   #define ESC_LF 'D'
+   #define ESC_RT 'C'
+   #define ESC_UP 'A'
+   #define ESC_DN 'B'
+   
+   inline static void 
+   handle_esc_seq()
+   {
+   	char a, b = 0;
+   
+   	a = getchar();
+   	if (a == '[') {
+   		switch(b = getchar()) {
+   		case ESC_LF: 
+   			move_left();
+   			return;
+   		case ESC_RT:
+   			move_right();
+   			return; 
+   		}
+   	}
+   	insert_char(a);
+   	if (b)
+   		insert_char(b);
+   }
+   ```
+
+当前的实现存在一定缺陷。主要是user-terminal最多只能让光标backspace到当前行开头。以后有空再改进一下吧。
+
