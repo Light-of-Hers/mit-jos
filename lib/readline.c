@@ -5,23 +5,23 @@
 // Handle the extended ASCII code inputed by console
 inline static void handle_ext_ascii(int c);
 // Handle the escape sequence inputed by serial (user-terminal)
-inline static void handle_esc_seq();
+inline static void handle_esc_seq(void);
 
 // Move the cursor right
-inline static void move_right();
+inline static void move_right(void);
 // Move the cursor left
-inline static void move_left();
+inline static void move_left(void);
 
 // Flush buffer's [cur, tail) to the displays
 // and move the cursor back
-inline static void flush_buf();
+inline static void flush_buf(void);
 
 // Insert char to current cursor
 inline static void insert_char(int c);
 // Remove current cursor's char
-inline static void remove_char();
+inline static void remove_char(void);
 // Terminate the input
-inline static void end_input();
+inline static void end_input(void);
 
 #define BUFLEN 1024
 static char buf[BUFLEN];
@@ -68,7 +68,7 @@ readline(const char *prompt)
 }
 
 inline static void 
-flush_buf()
+flush_buf(void)
 {
 	for (int i = cur; i < tail; ++i)
 		cputchar(buf[i]);
@@ -93,7 +93,7 @@ insert_char(int c)
 }
 
 inline static void 
-remove_char()
+remove_char(void)
 {
 	if (cur == tail) {
 		cur--, tail--;
@@ -110,7 +110,7 @@ remove_char()
 }
 
 inline static void 
-move_left()
+move_left(void)
 {
 	if (cur > 0) {
 		if (echoing)
@@ -120,7 +120,7 @@ move_left()
 }
 
 inline static void 
-move_right()
+move_right(void)
 {
 	if (cur < tail) {
 		if (echoing)
@@ -130,7 +130,7 @@ move_right()
 }
 
 inline static void 
-end_input()
+end_input(void)
 {
 	if (echoing) {
 		for (; cur < tail; cputchar(buf[cur++]))
@@ -166,7 +166,7 @@ handle_ext_ascii(int c)
 #define ESC_DN 'B'
 
 inline static void 
-handle_esc_seq()
+handle_esc_seq(void)
 {
 	char a, b = 0;
 
