@@ -26,8 +26,8 @@ static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
     { "backtrace", "Backtrace the call of functions", mon_backtrace },
-    { "showmappings", "Show the mappings between given virtual memory range", mon_showmappings },
-    { "setpageperm", "Set the permission bits of a given mapping", mon_setpageperm },
+    { "showmap", "Show the mappings between given virtual memory range", mon_showmap },
+    { "setperm", "Set the permission bits of a given mapping", mon_setperm },
     { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem},
 };
 
@@ -91,22 +91,22 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
-int mon_showmappings(int argc, char **argv, struct Trapframe *tf) {
+int 
+mon_showmap(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg = 
-    "Usage: showmappings START END\n"
-    "\tAttention: START <= END";
+    "Usage: showmappings <start> [<length>]\n";
 
-    if (argc != 3)
+    if (argc < 2)
         goto help;
 
     uintptr_t vstart, vend;
+    size_t vlen;
     pte_t *pte;
 
-    vstart = (uintptr_t)strtol(argv[1], 0, 0); 
-    vend = (uintptr_t)strtol(argv[2], 0, 0);
-
-    if (vstart > vend)
-        goto help;
+    vstart = (uintptr_t)strtol(argv[1], 0, 0);
+    vlen = argc >= 3 ? (size_t)strtol(argv[2], 0, 0) : 1;
+    vend = vstart + vlen;
 
     vstart = ROUNDDOWN(vstart, PGSIZE);
     vend = ROUNDDOWN(vend, PGSIZE);
@@ -127,9 +127,11 @@ help:
     return 0;
 }
 
-int mon_setpageperm(int argc, char **argv, struct Trapframe *tf) {
+int 
+mon_setperm(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg = 
-    "Usage: setpageperm VA PERM\n";
+    "Usage: setperm <virtual address> <permission>\n";
 
     if (argc != 3)
         goto help;
@@ -154,9 +156,11 @@ help:
     return 0;    
 }
 
-int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
+int 
+mon_dumpmem(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg =
-    "Usage: dumpmem [option] START END\n"
+    "Usage: dumpmem [option] <start> <length>\n"
     "\t-p, --physical\tuse physical address\n";
 
     int phys = 0;
@@ -178,9 +182,11 @@ int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
     }
 
     uint32_t mstart, mend;
+    size_t mlen;
     
     mstart = (uint32_t)strtol(argv[1], 0, 0);
-    mend = (uint32_t)strtol(argv[2], 0, 0);
+    mlen = (size_t)strtol(argv[2], 0, 0);
+    mend = mstart + mlen;
 
     if (phys) {
         if (mend > ~(uint32_t)0 - KERNBASE + 1) {
