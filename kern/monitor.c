@@ -233,14 +233,13 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
             cprintf("Target memory out of range\n");
             return 0;
         }
-        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
-            dump_pm(mstart, mend);
-        } else {
-            for (; mstart < mend; ++mstart) {
-                cprintf("[PA: 0x%08x]: %02x\n", mstart,
-                        *(uint8_t *)KADDR(mstart));
-            }
+        uint32_t next = MIN(mend, ~(uint32_t)0 - KERNBASE + 1);
+        for (; mstart < next; ++mstart) {
+            cprintf("[PA: 0x%08x]: %02x\n", mstart,
+                    *(uint8_t *)KADDR(mstart));
         }
+        if (mstart < mend)
+            dump_pm(mstart, mend);
     } else {
         dump_vm(mstart, mend);
     }

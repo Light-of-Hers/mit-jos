@@ -63,6 +63,7 @@ i386_detect_memory(void)
 // --------------------------------------------------------------
 
 static void boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
+static void boot_map_region_huge_page(pde_t* pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
 static void check_page_free_list(bool only_low_memory);
 static void check_page_alloc(void);
 static void check_kern_pgdir(void);
@@ -122,6 +123,7 @@ void
 mem_init(void)
 {
 	uint32_t cr0;
+	uint32_t cr4;
 	size_t n;
 
 	// Find out how much memory the machine has (npages & npages_basemem).
@@ -199,7 +201,7 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
-    boot_map_region(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
+    boot_map_region_huge_page(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
@@ -208,6 +210,12 @@ mem_init(void)
 	// somewhere between KERNBASE and KERNBASE+4MB right now, which is
 	// mapped the same way by both page tables.
 	//
+
+	// Enable page size extension
+	cr4 = rcr4();
+	cr4 |= CR4_PSE;
+	lcr4(cr4);
+
 	// If the machine reboots at this point, you've probably set up your
 	// kern_pgdir wrong.
 	lcr3(PADDR(kern_pgdir));
@@ -412,7 +420,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
     size_t off;
     pte_t *pte;
 
-	if ((va & (PGSIZE - 1)) || (pa & (PGSIZE - 1)))
+	if ((va & (PGSIZE - 1)) || (pa & (PGSIZE - 1)) || size & (PGSIZE - 1))
 		panic("boot_map_region");
     
     for (off = 0; off < size; off += PGSIZE) {
@@ -420,6 +428,18 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
             panic("boot_map_region");
         *pte = (pa + off) | perm | PTE_P;
     }
+}
+static void 
+boot_map_region_huge_page(pde_t* pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) 
+{
+	size_t off;
+
+	if (va & (PTSIZE - 1) || pa & (PTSIZE - 1) || size & (PTSIZE - 1))
+		panic("boot_map_region_huge_page");
+	
+	for (off = 0; off < size; off += PTSIZE) {
+		pgdir[PDX(va + off)] = (pa + off) | perm | PTE_P | PTE_PS;
+	}
 }
 
 //
@@ -735,6 +755,9 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
+	// recognize huge page
+	if (*pgdir & PTE_PS)
+		return PTE_ADDR(*pgdir) | (PTX(va) << PTXSHIFT) | PGOFF(va);
 	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 	if (!(p[PTX(va)] & PTE_P))
 		return ~0;
