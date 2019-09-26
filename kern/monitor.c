@@ -6,6 +6,7 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 #include <inc/x86.h>
+#include <inc/log.h>
 
 #include <kern/console.h>
 #include <kern/monitor.h>
@@ -156,6 +157,45 @@ help:
     return 0;    
 }
 
+static void 
+dump_vm(uint32_t mstart, uint32_t mend)
+{
+    uint32_t next;
+    pte_t *pte;
+    while (mstart < mend) {
+        if (!(pte = pgdir_walk(kern_pgdir, (void *)mstart, 0))) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else if (!(*pte & PTE_P)) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart,
+                        PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t *)mstart);
+        }
+    }
+}
+
+static void 
+dump_pm(uint32_t mstart, uint32_t mend)
+{
+    static const uint32_t map_base = 0;
+    uint32_t next, base;
+
+    while(mstart < mend) {
+        next = MIN(ROUNDUP(mstart + 1, PGSIZE), mend);
+        base = ROUNDDOWN(mstart, PGSIZE);
+        page_insert(kern_pgdir, &pages[base / PGSIZE], (void*)map_base, PTE_P);
+        for (; mstart < next; ++mstart)
+            cprintf("[PA: 0x%08x]: %02x\n", mstart, *((uint8_t*)(mstart - base + map_base)));
+    }
+    page_remove(kern_pgdir, (void*)map_base);
+}
+
 int 
 mon_dumpmem(int argc, char **argv, struct Trapframe *tf) 
 {
@@ -189,31 +229,20 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
     mend = mstart + mlen;
 
     if (phys) {
-        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
+        if (mend > npages * PGSIZE) {
             cprintf("Target memory out of range\n");
             return 0;
         }
-        for (; mstart < mend; ++mstart) {
-            cprintf("[PA: 0x%08x]: %02x\n", mstart, *(uint8_t*)KADDR(mstart));
-        }
-    } else {
-        uint32_t next;
-        pte_t *pte;
-        while(mstart < mend) {
-            if (!(pte = pgdir_walk(kern_pgdir, (void*)mstart, 0))) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else if (!(*pte & PTE_P)) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
+        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
+            dump_pm(mstart, mend);
+        } else {
+            for (; mstart < mend; ++mstart) {
+                cprintf("[PA: 0x%08x]: %02x\n", mstart,
+                        *(uint8_t *)KADDR(mstart));
             }
         }
+    } else {
+        dump_vm(mstart, mend);
     }
     return 0;
 

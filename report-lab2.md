@@ -367,13 +367,13 @@ boot_map_region(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
 
 > Q4: What is the maximum amount of physical memory that this operating system can support? Why?
 
-可利用的最大物理内存大小为256MB。因为KERNBASE = 0xF0000000，只有在这以上的虚拟内存所映射的物理内存才是可被利用的。
+可利用的最大物理内存大小为128MB（一共32768 = 2^15页）。因为硬件检测出的物理内存就是这么大（可通过qemu的运行参数设置）。
 
 
 
 > Q5: How much space overhead is there for managing memory, if we actually had the maximum amount of physical memory? How is this overhead broken down?
 
-内存管理部分包括1024个虚拟页表和1个物理页表（不考虑空闲物理页链表头），其中所有虚拟页表所占内存为1024*4KB = 4MB，物理页表所占内存为256MB/4KB * 8B = 512KB = 0.5MB （每个表项大小为8B），总内存开销为4.5MB。因为采用了分级页表机制，实际上平时只有很少一部分的虚拟页表会位于内存中，所以总开销一般不足1MB。
+内存管理部分包括1024个虚拟页表和1个物理页表（不考虑空闲物理页链表头），其中所有虚拟页表所占内存为1024*4KB = 4MB，物理页表所占内存为32768 * 8B = 256KB = 0.25MB （每个表项大小为8B），总内存开销为4.25MB。因为采用了分级页表机制，实际上平时只有很少一部分的虚拟页表会位于内存中，所以总开销一般不足1MB。
 
 
 
@@ -508,7 +508,53 @@ help:
 
 处理命令行参数稍微有点繁琐，其他还行。之后可以考虑添加个类似linux getopt的函数。
 
+关于查看物理地址的问题，因为JOS的默认内存是128MB，而KERNBASE以上的虚拟内存大小为256MB，因此可以直接通过访问对应的KERNBASE以上的虚拟地址来访问对应的物理地址。
+
+如果自定义Qemu提供的内存大小，导致访问的物理地址大于256MB的话，可以临时映射一个页（比如映射0x0所处的页）到对应的物理地址，来查看其内容。
+
+默认物理内存不超过32位，不然其中的`uint32_t`需要改成`uint64_t`。
+
 ```C
+
+static void 
+dump_vm(uint32_t mstart, uint32_t mend)
+{
+    uint32_t next;
+    pte_t *pte;
+    while (mstart < mend) {
+        if (!(pte = pgdir_walk(kern_pgdir, (void *)mstart, 0))) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else if (!(*pte & PTE_P)) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart,
+                        PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t *)mstart);
+        }
+    }
+}
+
+static void 
+dump_pm(uint32_t mstart, uint32_t mend)
+{
+    static const uint32_t map_base = 0;
+    uint32_t next, base;
+
+    while(mstart < mend) {
+        next = MIN(ROUNDUP(mstart + 1, PGSIZE), mend);
+        base = ROUNDDOWN(mstart, PGSIZE);
+        page_insert(kern_pgdir, &pages[base / PGSIZE], (void*)map_base, PTE_P);
+        for (; mstart < next; ++mstart)
+            cprintf("[PA: 0x%08x]: %02x\n", mstart, *((uint8_t*)(mstart - base + map_base)));
+    }
+    page_remove(kern_pgdir, (void*)map_base);
+}
+
 int 
 mon_dumpmem(int argc, char **argv, struct Trapframe *tf) 
 {
@@ -542,31 +588,20 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
     mend = mstart + mlen;
 
     if (phys) {
-        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
+        if (mend > npages * PGSIZE) {
             cprintf("Target memory out of range\n");
             return 0;
         }
-        for (; mstart < mend; ++mstart) {
-            cprintf("[PA: 0x%08x]: %02x\n", mstart, *(uint8_t*)KADDR(mstart));
-        }
-    } else {
-        uint32_t next;
-        pte_t *pte;
-        while(mstart < mend) {
-            if (!(pte = pgdir_walk(kern_pgdir, (void*)mstart, 0))) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else if (!(*pte & PTE_P)) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
+        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
+            dump_pm(mstart, mend);
+        } else {
+            for (; mstart < mend; ++mstart) {
+                cprintf("[PA: 0x%08x]: %02x\n", mstart,
+                        *(uint8_t *)KADDR(mstart));
             }
         }
+    } else {
+        dump_vm(mstart, mend);
     }
     return 0;
 
@@ -579,3 +614,4 @@ help:
 效果：
 
 ![](assets/cmd-dumpmem.png)
+

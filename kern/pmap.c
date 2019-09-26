@@ -287,6 +287,7 @@ page_init(void)
         MARK_USE(i);
     for (i = boot_alloc_end / PGSIZE; i < npages; ++i)
         MARK_FREE(i);
+	log_int(npages);
 
 #undef MARK_USE
 #undef MARK_FREE
@@ -385,7 +386,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
     if (!(*pde & PTE_P)) {
         if (!create || !(pp = page_alloc(ALLOC_ZERO)))
             return NULL;
-        *pde = page2pa(pp) | 0xFFF; // it's OK to set all bits in pde.
+        *pde = page2pa(pp) | (PTE_P | PTE_U | PTE_W); // it's OK to set all bits in pde.
         pp->pp_ref += 1;
     }
 
