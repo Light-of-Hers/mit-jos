@@ -85,6 +85,8 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 			// exact match for 'addr', but continue loop to find
 			// *region_right
 			*region_left = m;
+			// l = m;
+			// addr++;
 			l = m + 1;
 		}
 	}
@@ -210,6 +212,8 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 	//	which one.
 	// Your code here.
     stab_binsearch(stabs, &lline, &rline, N_SLINE, addr);
+	if (lline > rline)
+		return -1;
     info->eip_line = stabs[lline].n_desc;
 
 	// Search backwards from the line number for the relevant filename
