@@ -55,12 +55,6 @@ TRAPHANDLER(__handler##n##__, n)
  */
 #include <kern/trapentry.inc>
 
-TH(32)
-TH(33)
-TH(36)
-TH(39)
-TH(46)
-
 /*
  * Lab 3: Your code here for _alltraps
  */
