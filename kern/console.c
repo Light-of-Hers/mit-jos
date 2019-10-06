@@ -159,10 +159,9 @@ cga_init(void)
 	crt_pos = pos;
 }
 
-
-
+// Old cga_putc
 static void
-cga_putc(int c)
+cga_putc1(int c)
 {
 	// if no attribute given, then use black on white
 	if (!(c & ~0xFF))
@@ -170,9 +169,11 @@ cga_putc(int c)
 
 	switch (c & 0xff) {
 	case '\b':
+		// Change the behavior of backspace to support character insert.
+		// Maintain the character in `crt_pos`.
 		if (crt_pos > 0) {
 			crt_pos--;
-			crt_buf[crt_pos] = (c & ~0xff) | ' ';
+			// crt_buf[crt_pos] = (c & ~0xff) | ' ';
 		}
 		break;
 	case '\n':
@@ -204,10 +205,140 @@ cga_putc(int c)
 	}
 
 	/* move that little blinky thing */
+	/* just move the cursor */
 	outb(addr_6845, 14);
 	outb(addr_6845 + 1, crt_pos >> 8);
 	outb(addr_6845, 15);
 	outb(addr_6845 + 1, crt_pos);
+}
+
+static int
+isdigit(int c)
+{
+	return c >= '0' && c <= '9';
+}
+
+static int 
+atoi(const char* s)
+{
+	int res = 0;
+	for (int i = 0; isdigit(s[i]); ++i)
+		res = res * 10 + (s[i] - '0');
+	return res;
+}
+
+// Modify the VGA text-mode character attribute 'attr' 
+// based on the parameter contained in the buf.
+static void
+handle_ansi_esc_param(const char* buf, int len, int* attr)
+{
+	// white is light grey
+	static int ansi2cga[] = {0x0, 0x4, 0x2, 0xe, 0x1, 0x5, 0x3, 0x7};
+	int tmp_attr = *attr;
+	int n = atoi(buf);
+	if (n >= 30 && n <= 37) {
+		tmp_attr = (tmp_attr & ~(0x0f)) | ansi2cga[n - 30];
+	} else if (n >= 40 && n <= 47) {
+		tmp_attr = (tmp_attr & ~(0xf0)) | (ansi2cga[n - 40] << 4);
+	} else if (n == 0) {
+		tmp_attr = 0x07;
+	}
+	*attr = tmp_attr;
+}
+
+// The max length of one parameter.
+// Emmmmmm... nobody will input 
+// a number parameter with length of 1023, probably.
+#define ESC_BUFSZ 1024
+
+// If the character is '\033' (esc), then buffer the input
+// until get a whole ANSI Esc Seq (and update the attribute) 
+// or get a false input midway.
+// Otherwise output it normally.
+// 
+// Use a deterministic finite automata:
+// 
+// [0]: '\033'	=> [1]
+// 		other	=> [0] + output the character
+// 
+// [1]: '\033'	=> [1]
+// 		'['		=> [2]
+// 		other	=> [0]
+// 
+// [2]: digit	=> [3] + begin record the modification
+// 		other	=> [0] + discard the modification
+// 
+// [3]: digit	=> [3]
+// 		';'		=> [2] + record the modification of attribute
+// 		'm'		=> [0] + update the attribute
+// 		other 	=> [0] + discard the modification
+// 
+static void 
+cga_putc(int c)
+{
+	static int state = 0;
+	static char esc_buf[ESC_BUFSZ];
+	static int esc_len = 0;
+	static int attr = 0; // default attribute.
+	static int esc_attr = 0;
+
+	switch(state) {
+	case 0: {
+		if ((char)c == '\033') {
+			state = 1;
+		} else {
+			cga_putc1((attr << 8) | (c & 0xff));
+		}
+		break;
+	}
+	case 1: {
+		if ((char)c == '[') {
+			esc_attr = attr;
+			state = 2;
+		} else if ((char)c != '\033') {
+			state = 0;
+		}
+		break;
+	}
+	case 2: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+			state = 3;
+		} else {
+			// discard modification
+			esc_len = 0;
+
+			state = 0;
+		}
+		break;
+	}
+	case 3: {
+		if (isdigit(c)) {
+			esc_buf[esc_len++] = (char)c;
+		} else if ((char)c == ';') {
+			// record current modification
+			esc_buf[esc_len++] = 0;
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+
+			state = 2;
+		} else if ((char)c == 'm') {
+			// update the attribute
+			esc_buf[esc_len++] = 0;
+			handle_ansi_esc_param(esc_buf, esc_len, &esc_attr);
+			esc_len = 0;
+			attr = esc_attr;
+
+			state = 0;
+		} else {
+			// discard modification
+			esc_len = 0;
+
+			state = 0;
+		}
+		break;
+	}
+	}
 }
 
 
@@ -468,6 +599,7 @@ getchar(void)
 {
 	int c;
 
+	// polling
 	while ((c = cons_getc()) == 0)
 		/* do nothing */;
 	return c;

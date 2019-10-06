@@ -19,6 +19,27 @@
 static void boot_aps(void);
 
 
+void 
+rainbow(int stride)
+{
+	static const char msg[] = "rainbow!";
+	for (int i = 0; i < COLOR_NUM; ++i) {
+		set_fgcolor(i);
+		set_bgcolor((i + stride) % COLOR_NUM);
+		cprintf("%c", msg[i % (sizeof(msg) - 1)]);
+	}
+	reset_fgcolor();
+	reset_bgcolor();	
+	cprintf("\n");
+}
+
+void 
+test_rainbow()
+{
+	for(int i = 1; i < COLOR_NUM; ++i)
+		rainbow(i);
+}
+
 void
 i386_init(void)
 {
@@ -26,7 +47,7 @@ i386_init(void)
 	// Can't call cprintf until after we do this!
 	cons_init();
 
-	// cprintf("6828 decimal is %o octal!\n", 6828);
+	cprintf("6828 decimal is %o octal!\n", 6828);
 
 	// Lab 2 memory management initialization functions
 	mem_init();

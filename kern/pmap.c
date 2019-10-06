@@ -352,6 +352,7 @@ page_init(void)
         MARK_USE(i);
     for (; i < npages; ++i)
         MARK_FREE(i);
+	log_int(npages);
 
 #undef MARK_USE
 #undef MARK_FREE
@@ -450,7 +451,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
     if (!(*pde & PTE_P)) {
         if (!create || !(pp = page_alloc(ALLOC_ZERO)))
             return NULL;
-        *pde = page2pa(pp) | 0xFFF;
+        *pde = page2pa(pp) | (PTE_P | PTE_U | PTE_W); // it's OK to set all bits in pde.
         pp->pp_ref += 1;
     }
 
@@ -475,6 +476,9 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 	// Fill this function in
     size_t off;
     pte_t *pte;
+
+	if ((va & (PGSIZE - 1)) || (pa & (PGSIZE - 1)))
+		panic("boot_map_region");
     
     for (off = 0; off < size; off += PGSIZE) {
         if (!(pte = pgdir_walk(pgdir, (void*)(va + off), 1)))
