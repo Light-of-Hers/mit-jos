@@ -61,51 +61,19 @@ static const char *trapname(int trapno)
 
 #define TH(n) extern void handler##n (void);
 #define THE(n) TH(n)
-TH(0)
-TH(1)
-TH(2)
-TH(3)
-TH(4)
-TH(5)
-TH(6)
-TH(7)
-THE(8)
-THE(10)
-THE(11)
-THE(12)
-THE(13)
-THE(14)
-TH(16)
-THE(17)
-TH(18)
-TH(19)
-TH(48)
+
+#include <kern/trapentry.inc>
+
 #undef THE
 #undef TH
 
 #define TH(n) [n] = handler##n,
 #define THE(n) TH(n)
+
 static void (* handlers[256])(void) = {
-TH(0)
-TH(1)
-TH(2)
-TH(3)
-TH(4)
-TH(5)
-TH(6)
-TH(7)
-THE(8)
-THE(10)
-THE(11)
-THE(12)
-THE(13)
-THE(14)
-TH(16)
-THE(17)
-TH(18)
-TH(19)
-TH(48)
+#include <kern/trapentry.inc>
 };
+
 #undef THE
 #undef TH
 
@@ -207,6 +175,7 @@ trap_dispatch(struct Trapframe *tf)
         page_fault_handler(tf);
         return;
     }
+	case T_DEBUG:
     case T_BRKPT: {
         monitor(tf);
         return;

@@ -30,7 +30,9 @@ static struct Command commands[] = {
     { "backtrace", "Backtrace the call of functions", mon_backtrace },
     { "showmap", "Show the mappings between given virtual memory range", mon_showmap },
     { "setperm", "Set the permission bits of a given mapping", mon_setperm },
-    { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem},
+    { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem },
+    { "continue", "Continue the execution", mon_continue },
+    { "step", "Step in the execution", mon_step },
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -253,14 +255,17 @@ help:
 }
 
 int mon_continue(int argc, char **argv, struct Trapframe *tf) {
-    if (tf)
-        return -1;
-    return 0;
+    if (!tf || tf->tf_trapno != T_DEBUG || tf->tf_trapno != T_BRKPT)
+        return 0;
+    tf->tf_eflags &= ~FL_TF;
+    return -1;
 }
 
 int mon_step(int argc, char **argv, struct Trapframe *tf) {
-    // TODO
-    return 0;
+    if (!tf || tf->tf_trapno != T_DEBUG || tf->tf_trapno != T_BRKPT)
+        return 0;
+    tf->tf_eflags |= FL_TF;
+    return -1;
 }
 
 /***** Kernel monitor command interpreter *****/

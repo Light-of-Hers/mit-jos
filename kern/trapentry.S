@@ -52,25 +52,7 @@ TRAPHANDLER(handler##n, n)
 /*
  * Lab 3: Your code here for generating entry points for the different traps.
  */
-TH(0)
-TH(1)
-TH(2)
-TH(3)
-TH(4)
-TH(5)
-TH(6)
-TH(7)
-THE(8)
-THE(10)
-THE(11)
-THE(12)
-THE(13)
-THE(14)
-TH(16)
-THE(17)
-TH(18)
-TH(19)
-TH(48)
+#include <kern/trapentry.inc>
 
 /*
  * Lab 3: Your code here for _alltraps
