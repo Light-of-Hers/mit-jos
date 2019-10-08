@@ -90,16 +90,14 @@ pgfault(struct UTrapframe *utf)
 // It is also OK to panic on error.
 //
 static int
-duppage(envid_t envid, unsigned pn)
+duppage(envid_t peid, envid_t envid, unsigned pn)
 {
 	// LAB 4: Your code here.
 	// panic("duppage not implemented");
     int r;
-    envid_t peid;
     void *pg;
     pte_t pte;
 
-    peid = sys_getenvid();
     pg = (void*)(pn * PGSIZE);
     pte = uvpt[pn];
 
@@ -140,7 +138,7 @@ fork(void)
 	// LAB 4: Your code here.
 	// panic("fork not implemented");
     int r;
-    envid_t ceid;
+    envid_t ceid, peid;
 
     set_pgfault_handler(pgfault);
     
@@ -148,6 +146,7 @@ fork(void)
         thisenv = &envs[ENVX(sys_getenvid())];
     } else if (ceid > 0) {
         // assume UTOP == UXSTACKTOP
+        peid = sys_getenvid();
         for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
             uint32_t pde = uvpd[pn / NPDENTRIES];
             if (!(pde & PTE_P)) {
@@ -157,7 +156,7 @@ fork(void)
                 for (; pn < next; ++pn) {
                     uint32_t pte = uvpt[pn];
                     if (pte & PTE_P && pte & PTE_U)
-                        if (r = duppage(ceid, pn), r < 0)
+                        if (r = duppage(peid, ceid, pn), r < 0)
                             PANIC;
                 }
             }
@@ -174,10 +173,62 @@ fork(void)
 #undef PANIC
 }
 
+static int 
+sduppage(envid_t peid, envid_t envid, unsigned pn) 
+{
+    int r;
+    void *pg;
+    pte_t pte;
+
+    pg = (void*)(pn * PGSIZE);
+    pte = uvpt[pn];
+
+    assert(pte & PTE_P && pte & PTE_U);
+    if (r = sys_page_map(peid, pg, envid, pg, pte & PTE_SYSCALL), r < 0)
+        return r;
+
+    return 0;   
+}
+
 // Challenge!
 int
 sfork(void)
 {
-	panic("sfork not implemented");
-	return -E_INVAL;
+	// panic("sfork not implemented");
+#define PANIC panic("sfork: %e", r)
+    int r;
+    envid_t ceid, peid;
+
+    set_pgfault_handler(pgfault);
+    
+    if (ceid = sys_exofork(), ceid == 0) {
+        thisenv = &envs[ENVX(sys_getenvid())];
+    } else if (ceid > 0) {
+        // assume UTOP == UXSTACKTOP
+        peid = sys_getenvid();
+        for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
+            uint32_t pde = uvpd[pn / NPDENTRIES];
+            if (!(pde & PTE_P)) {
+                pn += NPDENTRIES;
+            } else {
+                size_t next = MIN(UTOP / PGSIZE - 1, pn + NPDENTRIES);
+                for (; pn < next; ++pn) {
+                    uint32_t pte = uvpt[pn];
+                    if (pte & PTE_P && pte & PTE_U)
+                        if (r = sduppage(peid, ceid, pn), r < 0)
+                            PANIC;
+                }
+            }
+        }
+        if (r = duppage(peid, ceid, (USTACKTOP - 1) / PGSIZE), r < 0)
+            PANIC;
+        if (r = sys_page_alloc(ceid, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W), r < 0)
+            PANIC;
+        if (r = sys_env_set_pgfault_upcall(ceid, _pgfault_upcall), r < 0)
+            PANIC;
+        if (r = sys_env_set_status(ceid, ENV_RUNNABLE), r < 0)
+            PANIC;
+    }
+    return ceid;
+#undef PANIC
 }
