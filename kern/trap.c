@@ -389,7 +389,7 @@ page_fault_handler(struct Trapframe *tf)
 	// LAB 4: Your code here.
     // check upcall
     if (!curenv->env_pgfault_upcall) {
-        log("no upcall\n");
+        log("no upcall");
         goto bad;
     }
     // check whether upcall and xstack are in user space
@@ -397,7 +397,7 @@ page_fault_handler(struct Trapframe *tf)
     user_mem_assert(curenv, (void*)(UXSTACKTOP - 1), 0, PTE_U | PTE_W);
     // check xstack overflow
     if (fault_va < UXSTACKTOP - PGSIZE && fault_va >= UXSTACKTOP - 2 * PGSIZE) {
-        log("xstack overflow\n");
+        log("xstack overflow");
         goto bad;
     }
 
@@ -412,7 +412,7 @@ page_fault_handler(struct Trapframe *tf)
     }
     // stack overflow
     if (esp < UXSTACKTOP - PGSIZE) {
-        log("xstack overflow\n");
+        log("xstack overflow");
         goto bad;
     }
     

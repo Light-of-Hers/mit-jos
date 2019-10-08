@@ -7,6 +7,7 @@
 #include <inc/assert.h>
 #include <inc/elf.h>
 #include <inc/log.h>
+#include <inc/elink.h>
 
 #include <kern/env.h>
 #include <kern/pmap.h>
@@ -268,6 +269,8 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Also clear the IPC receiving flag.
 	e->env_ipc_recving = 0;
+	elink_init(&e->env_ipc_link);
+	elink_init(&e->env_ipc_queue);
 
 	// commit the allocation
 	env_free_list = e->env_link;
@@ -553,8 +556,8 @@ env_run(struct Env *e)
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
-    unlock_kernel();
     lcr3(PADDR(e->env_pgdir));
+    unlock_kernel();
     env_pop_tf(&e->env_tf);
 }
 
