@@ -34,9 +34,6 @@ pgfault(struct UTrapframe *utf)
 	//   (see <inc/memlayout.h>).
 
 	// LAB 4: Your code here.
-    envid_t eid;
-    
-    eid = sys_getenvid();
     addr = ROUNDDOWN(addr, PGSIZE);
 
     if (!(
@@ -50,7 +47,7 @@ pgfault(struct UTrapframe *utf)
         panic(
             "[0x%08x] user page fault va 0x%08x ip 0x%08x\n"
             "[%s, %s, %s]",
-            eid,
+            sys_getenvid(),
             utf->utf_fault_va,
             utf->utf_eip,
             err & 4 ? "user" : "kernel",
@@ -65,12 +62,12 @@ pgfault(struct UTrapframe *utf)
 	//   You should make three system calls.
 
 	// LAB 4: Your code here.
-    if (r = sys_page_alloc(eid, PFTEMP, PTE_P | PTE_U | PTE_W), r < 0)
+    if (r = sys_page_alloc(0, PFTEMP, PTE_P | PTE_U | PTE_W), r < 0)
         PANIC;
     memmove(PFTEMP, addr, PGSIZE);
-    if (r = sys_page_map(eid, PFTEMP, eid, addr, PTE_P | PTE_U | PTE_W), r < 0)
+    if (r = sys_page_map(0, PFTEMP, 0, addr, PTE_P | PTE_U | PTE_W), r < 0)
         PANIC;
-    if (r = sys_page_unmap(eid, PFTEMP), r < 0)
+    if (r = sys_page_unmap(0, PFTEMP), r < 0)
         PANIC;
     return;
 	// panic("pgfault not implemented");
@@ -90,7 +87,7 @@ pgfault(struct UTrapframe *utf)
 // It is also OK to panic on error.
 //
 static int
-duppage(envid_t peid, envid_t envid, unsigned pn)
+duppage(envid_t envid, unsigned pn)
 {
 	// LAB 4: Your code here.
 	// panic("duppage not implemented");
@@ -103,12 +100,12 @@ duppage(envid_t peid, envid_t envid, unsigned pn)
 
     assert(pte & PTE_P && pte & PTE_U);
     if (pte & PTE_W || pte & PTE_COW) {
-        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+        if (r = sys_page_map(0, pg, envid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
             return r;
-        if (r = sys_page_map(peid, pg, peid, pg, PTE_P | PTE_U | PTE_COW), r < 0)
+        if (r = sys_page_map(0, pg, 0, pg, PTE_P | PTE_U | PTE_COW), r < 0)
             return r;
     } else {
-        if (r = sys_page_map(peid, pg, envid, pg, PTE_P | PTE_U), r < 0)
+        if (r = sys_page_map(0, pg, envid, pg, PTE_P | PTE_U), r < 0)
             return r;
     }
 
@@ -138,7 +135,7 @@ fork(void)
 	// LAB 4: Your code here.
 	// panic("fork not implemented");
     int r;
-    envid_t ceid, peid;
+    envid_t ceid;
 
     set_pgfault_handler(pgfault);
     
@@ -146,7 +143,6 @@ fork(void)
         thisenv = &envs[ENVX(sys_getenvid())];
     } else if (ceid > 0) {
         // assume UTOP == UXSTACKTOP
-        peid = sys_getenvid();
         for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
             uint32_t pde = uvpd[pn / NPDENTRIES];
             if (!(pde & PTE_P)) {
@@ -156,7 +152,7 @@ fork(void)
                 for (; pn < next; ++pn) {
                     uint32_t pte = uvpt[pn];
                     if (pte & PTE_P && pte & PTE_U)
-                        if (r = duppage(peid, ceid, pn), r < 0)
+                        if (r = duppage(ceid, pn), r < 0)
                             PANIC;
                 }
             }
@@ -174,7 +170,7 @@ fork(void)
 }
 
 static int 
-sduppage(envid_t peid, envid_t envid, unsigned pn) 
+sduppage(envid_t envid, unsigned pn) 
 {
     int r;
     void *pg;
@@ -184,7 +180,7 @@ sduppage(envid_t peid, envid_t envid, unsigned pn)
     pte = uvpt[pn];
 
     assert(pte & PTE_P && pte & PTE_U);
-    if (r = sys_page_map(peid, pg, envid, pg, pte & PTE_SYSCALL), r < 0)
+    if (r = sys_page_map(0, pg, envid, pg, pte & PTE_SYSCALL), r < 0)
         return r;
 
     return 0;   
@@ -205,7 +201,6 @@ sfork(void)
         thisenv = &envs[ENVX(sys_getenvid())];
     } else if (ceid > 0) {
         // assume UTOP == UXSTACKTOP
-        peid = sys_getenvid();
         for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
             uint32_t pde = uvpd[pn / NPDENTRIES];
             if (!(pde & PTE_P)) {
@@ -215,12 +210,12 @@ sfork(void)
                 for (; pn < next; ++pn) {
                     uint32_t pte = uvpt[pn];
                     if (pte & PTE_P && pte & PTE_U)
-                        if (r = sduppage(peid, ceid, pn), r < 0)
+                        if (r = sduppage(ceid, pn), r < 0)
                             PANIC;
                 }
             }
         }
-        if (r = duppage(peid, ceid, (USTACKTOP - 1) / PGSIZE), r < 0)
+        if (r = duppage(ceid, (USTACKTOP - 1) / PGSIZE), r < 0)
             PANIC;
         if (r = sys_page_alloc(ceid, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W), r < 0)
             PANIC;
