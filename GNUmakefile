@@ -259,19 +259,19 @@ UPSTREAM := $(shell git remote -v | grep "pdos.csail.mit.edu/6.828/2018/jos.git 
 
 tarball-pref: handin-check
 	@SUF=$(LAB); \
-	if test $(LAB) -eq 3 -o $(LAB) -eq 4; then \
-		read -p "Which part would you like to submit? [a, b, c (c for lab 4 only)]" p; \
-		if test "$$p" != a -a "$$p" != b; then \
-			if test ! $(LAB) -eq 4 -o ! "$$p" = c; then \
-				echo "Bad part \"$$p\""; \
-				exit 1; \
-			fi; \
-		fi; \
-		SUF="$(LAB)$$p"; \
-		echo $$SUF > .suf; \
-	else \
-		rm -f .suf; \
-	fi; \
+	# if test $(LAB) -eq 3 -o $(LAB) -eq 4; then \
+	# 	read -p "Which part would you like to submit? [a, b, c (c for lab 4 only)]" p; \
+	# 	if test "$$p" != a -a "$$p" != b; then \
+	# 		if test ! $(LAB) -eq 4 -o ! "$$p" = c; then \
+	# 			echo "Bad part \"$$p\""; \
+	# 			exit 1; \
+	# 		fi; \
+	# 	fi; \
+	# 	SUF="$(LAB)$$p"; \
+	# 	echo $$SUF > .suf; \
+	# else \
+	# 	rm -f .suf; \
+	# fi; \
 	git archive --format=tar HEAD > lab$$SUF-handin.tar; \
 	git diff $(UPSTREAM)/lab$(LAB) > /tmp/lab$$SUF-diff.patch; \
 	tar -rf lab$$SUF-handin.tar /tmp/lab$$SUF-diff.patch; \
