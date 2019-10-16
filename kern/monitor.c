@@ -255,14 +255,14 @@ help:
 }
 
 int mon_continue(int argc, char **argv, struct Trapframe *tf) {
-    if (!tf || tf->tf_trapno != T_DEBUG || tf->tf_trapno != T_BRKPT)
+    if (!(tf && (tf->tf_trapno == T_DEBUG || tf->tf_trapno == T_BRKPT) && ((tf->tf_cs & 3) == 3)))
         return 0;
     tf->tf_eflags &= ~FL_TF;
     return -1;
 }
 
 int mon_step(int argc, char **argv, struct Trapframe *tf) {
-    if (!tf || tf->tf_trapno != T_DEBUG || tf->tf_trapno != T_BRKPT)
+    if (!(tf && (tf->tf_trapno == T_DEBUG || tf->tf_trapno == T_BRKPT) && ((tf->tf_cs & 3) == 3)))
         return 0;
     tf->tf_eflags |= FL_TF;
     return -1;

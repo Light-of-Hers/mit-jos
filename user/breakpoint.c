@@ -7,7 +7,5 @@ void
 umain(int argc, char **argv)
 {
 	asm volatile("int $3");
-	for (int i = 0; i < 10; ++i) 
-		cprintf("%d\n", i);
 }
 
