@@ -270,7 +270,7 @@ tarball-pref: handin-check
 	# 	SUF="$(LAB)$$p"; \
 	# 	echo $$SUF > .suf; \
 	# else \
-	# 	rm -f .suf; \
+		rm -f .suf; \
 	# fi; \
 	git archive --format=tar HEAD > lab$$SUF-handin.tar; \
 	git diff $(UPSTREAM)/lab$(LAB) > /tmp/lab$$SUF-diff.patch; \
