@@ -118,6 +118,13 @@ boot_aps(void)
 void
 mp_main(void)
 {
+#ifdef CONF_HUGE_PAGE
+	// Enable page size extension
+	uint32_t cr4;
+	cr4 = rcr4();
+	cr4 |= CR4_PSE;
+	lcr4(cr4);
+#endif
 	// We are in high EIP now, safe to switch to kern_pgdir 
 	lcr3(PADDR(kern_pgdir));
 	cprintf("SMP: CPU %d starting\n", cpunum());
