@@ -100,7 +100,7 @@ sys_exofork(void)
     child->env_tf.tf_regs.reg_eax = 0;
 
 #ifdef CONF_MFQ
-    elink_remove(&child->env_mfq_link);
+    env_mfq_pop(child);
 #endif
 
     return child->env_id;
@@ -134,7 +134,7 @@ sys_env_set_status(envid_t envid, int status)
 
 #ifdef CONF_MFQ
     if (status == ENV_RUNNABLE)
-        env_mfq_back(e);
+        env_mfq_add(e);
 #endif
 
     e->env_status = status;
@@ -343,7 +343,7 @@ ipc_try_send(struct Env* dste, uint32_t value, void* srcva, unsigned perm)
     dste->env_tf.tf_regs.reg_eax = 0;
 
 #ifdef CONF_MFQ
-    env_mfq_back(dste);
+    env_mfq_add(dste);
 #endif
 
     return 0;
@@ -445,7 +445,7 @@ sys_ipc_recv(void *dstva)
 
     cure->env_ipc_dstva = dstva;
     if (!elink_empty(&cure->env_ipc_queue)) {
-        struct EmbedLink* ln = elink_dequeue(&cure->env_ipc_queue);
+        EmbedLink* ln = elink_dequeue(&cure->env_ipc_queue);
         struct Env* sender = master(ln, struct Env, env_ipc_link);
 
         r = ipc_send_page(sender, cure);
@@ -454,7 +454,7 @@ sys_ipc_recv(void *dstva)
         sender->env_tf.tf_regs.reg_eax = r;
 
 #ifdef CONF_MFQ
-        env_mfq_back(sender);
+        env_mfq_add(sender);
 #endif
 
         if (r < 0)

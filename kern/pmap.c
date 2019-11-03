@@ -170,9 +170,9 @@ mem_init(void)
 
 #ifdef CONF_MFQ
 	//////////////////////////////////////////////////////////////////////
-	// Make 'mfqs' point to an array of size 'NMFQ' of 'struct EmbedLink'.
-	mfqs = (struct EmbedLink* ) boot_alloc(NMFQ * sizeof(struct EmbedLink));
-	memset(mfqs, 0, NMFQ * sizeof(struct EmbedLink));
+	// Make 'mfqs' point to an array of size 'NMFQ' of 'EmbedLink'.
+	mfqs = (EmbedLink* ) boot_alloc(NMFQ * sizeof(EmbedLink));
+	memset(mfqs, 0, NMFQ * sizeof(EmbedLink));
 	for (int i = 0 ; i < NMFQ; ++i)
 		elink_init(&mfqs[i]);
 #endif

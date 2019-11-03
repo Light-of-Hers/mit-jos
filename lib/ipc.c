@@ -1,6 +1,7 @@
 // User-level IPC library routines
 
 #include <inc/lib.h>
+#include <inc/config.h>
 
 // Receive a value via IPC and return it.
 // If 'pg' is nonnull, then any page sent by the sender will be mapped at
@@ -56,9 +57,14 @@ ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
 	// LAB 4: Your code here.
 	// panic("ipc_send not implemented");
     int r;
-    // while(r = sys_ipc_try_send(to_env, val, pg ? ROUNDDOWN(pg, PGSIZE) : (void*)UTOP, perm), r == -E_IPC_NOT_RECV)
-    //     sys_yield();
+
+#ifndef CONF_IPC_SLEEP
+    while(r = sys_ipc_try_send(to_env, val, pg ? ROUNDDOWN(pg, PGSIZE) : (void*)UTOP, perm), r == -E_IPC_NOT_RECV)
+        sys_yield();
+#else
     r = sys_ipc_send(to_env, val, pg ? ROUNDDOWN(pg, PGSIZE) : (void*)UTOP, perm);
+#endif
+
     if (r < 0)
         panic("ipc send: %e", r);
 }

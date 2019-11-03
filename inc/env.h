@@ -62,14 +62,14 @@ struct Env {
     void *env_pgfault_upcall; // Page fault upcall entry point
 
 #ifdef CONF_MFQ
-    struct EmbedLink env_mfq_link;
+    EmbedLink env_mfq_link;
     uint32_t env_mfq_level;
     int env_mfq_left_ticks;
 #endif
 
     // Lab 4 IPC
-    struct EmbedLink env_ipc_link;  // Embeded link to the blocking queue.
-    struct EmbedLink env_ipc_queue; // Blocking queue.
+    EmbedLink env_ipc_link;  // Embeded link to the blocking queue.
+    EmbedLink env_ipc_queue; // Blocking queue.
     bool env_ipc_recving;           // Env is blocked receiving
     void *env_ipc_dstva;            // VA at which to map received page
     uint32_t env_ipc_value;         // Data value sent to us

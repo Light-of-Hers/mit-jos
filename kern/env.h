@@ -10,9 +10,10 @@
 
 #define NMFQ 5
 #define MFQ_SLICE 2
-extern struct EmbedLink* mfqs;
+extern EmbedLink* mfqs;
 
-void 	env_mfq_back(struct Env* e);
+void 	env_mfq_add(struct Env* e);
+void 	env_mfq_pop(struct Env* e);
 
 #endif
 

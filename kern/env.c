@@ -18,27 +18,26 @@
 #include <kern/spinlock.h>
 
 #ifdef CONF_MFQ
-struct EmbedLink* mfqs = NULL;
-
-static inline void
-env_mfq_down(struct Env* e) 
-{
-	uint32_t lv = MIN(e->env_mfq_level + 1, NMFQ - 1);
-	e->env_mfq_level = lv;
-	e->env_mfq_left_ticks = (1 << lv) * MFQ_SLICE;
-	elink_remove(&e->env_mfq_link);
-	elink_enqueue(&mfqs[lv], &e->env_mfq_link);
-}
+EmbedLink* mfqs = NULL;
 
 void 
-env_mfq_back(struct Env *e) 
+env_mfq_add(struct Env *e) 
 {
 	elink_remove(&e->env_mfq_link);
 	if (e->env_mfq_left_ticks > 0) {
 		elink_insert(&mfqs[e->env_mfq_level], &e->env_mfq_link);	
 	} else {
-		env_mfq_down(e);
+		uint32_t lv = MIN(e->env_mfq_level + 1, NMFQ - 1);
+		e->env_mfq_level = lv;
+		e->env_mfq_left_ticks = (1 << lv) * MFQ_SLICE;
+		elink_enqueue(&mfqs[lv], &e->env_mfq_link);
 	}
+}
+
+void 
+env_mfq_pop(struct Env* e)
+{
+	elink_remove(&e->env_mfq_link);
 }
 
 #endif
@@ -508,7 +507,7 @@ env_free(struct Env *e)
 #ifdef CONF_MFQ
 	e->env_mfq_level = 0;
 	e->env_mfq_left_ticks = 0;
-	elink_remove(&e->env_mfq_link);
+	env_mfq_pop(e);
 #endif
 }
 
@@ -597,11 +596,11 @@ env_run(struct Env *e)
     e->env_runs += 1;
 #else 
 	if (cure && cure->env_status == ENV_RUNNING)
-        cure->env_status = ENV_RUNNABLE, env_mfq_back(cure);
+        cure->env_status = ENV_RUNNABLE, env_mfq_add(cure);
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
-	elink_remove(&e->env_mfq_link);
+	env_mfq_pop(e);
 #endif
 
     lcr3(PADDR(e->env_pgdir));
