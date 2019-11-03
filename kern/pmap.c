@@ -6,6 +6,7 @@
 #include <inc/string.h>
 #include <inc/assert.h>
 #include <inc/log.h>
+#include <inc/config.h>
 
 #include <kern/pmap.h>
 #include <kern/kclock.h>
@@ -72,6 +73,10 @@ static void check_kern_pgdir(void);
 static physaddr_t check_va2pa(pde_t *pgdir, uintptr_t va);
 static void check_page(void);
 static void check_page_installed_pgdir(void);
+
+#ifdef CONF_HUGE_PAGE
+static void boot_map_region_huge_page(pde_t* pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm);
+#endif
 
 // This simple physical memory allocator is used only while JOS is setting
 // up its virtual memory system.  page_alloc() is the real allocator.
@@ -218,8 +223,12 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
-    boot_map_region(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
 
+#ifdef CONF_HUGE_PAGE
+    boot_map_region_huge_page(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
+#else 
+	boot_map_region(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
+#endif
 	// Initialize the SMP-related parts of the memory map
 	mem_init_mp();
 
@@ -231,6 +240,15 @@ mem_init(void)
 	// somewhere between KERNBASE and KERNBASE+4MB right now, which is
 	// mapped the same way by both page tables.
 	//
+
+#ifdef CONF_HUGE_PAGE
+	// Enable page size extension
+	uint32_t cr4;
+	cr4 = rcr4();
+	cr4 |= CR4_PSE;
+	lcr4(cr4);
+#endif
+
 	// If the machine reboots at this point, you've probably set up your
 	// kern_pgdir wrong.
 	lcr3(PADDR(kern_pgdir));
@@ -477,7 +495,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
     size_t off;
     pte_t *pte;
 
-	if ((va & (PGSIZE - 1)) || (pa & (PGSIZE - 1)))
+	if ((va & (PGSIZE - 1)) || (pa & (PGSIZE - 1)) || size & (PGSIZE - 1))
 		panic("boot_map_region");
     
     for (off = 0; off < size; off += PGSIZE) {
@@ -486,6 +504,21 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
         *pte = (pa + off) | perm | PTE_P;
     }
 }
+
+#ifdef CONF_HUGE_PAGE
+static void 
+boot_map_region_huge_page(pde_t* pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) 
+{
+	size_t off;
+
+	if (va & (PTSIZE - 1) || pa & (PTSIZE - 1) || size & (PTSIZE - 1))
+		panic("boot_map_region_huge_page");
+	
+	for (off = 0; off < size; off += PTSIZE) {
+		pgdir[PDX(va + off)] = (pa + off) | perm | PTE_P | PTE_PS;
+	}
+}
+#endif
 
 //
 // Map the physical page 'pp' at virtual address 'va'.
@@ -918,6 +951,13 @@ check_va2pa(pde_t *pgdir, uintptr_t va)
 	pgdir = &pgdir[PDX(va)];
 	if (!(*pgdir & PTE_P))
 		return ~0;
+
+#ifdef CONF_HUGE_PAGE
+	// recognize huge page
+	if (*pgdir & PTE_PS)
+		return PTE_ADDR(*pgdir) | (PTX(va) << PTXSHIFT) | PGOFF(va);
+#endif
+
 	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
 	if (!(p[PTX(va)] & PTE_P))
 		return ~0;

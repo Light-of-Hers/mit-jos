@@ -183,7 +183,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
     if (!(*pde & PTE_P)) {
         if (!create || !(pp = page_alloc(ALLOC_ZERO)))
             return NULL;
-        *pde = page2pa(pp) | 0xFFF; // it's OK to set all bits in pde.
+        *pde = page2pa(pp) | (PTE_P | PTE_U | PTE_W); // it's OK to set all bits in pde.
         pp->pp_ref += 1;
     }
 
@@ -592,14 +592,13 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
             cprintf("Target memory out of range\n");
             return 0;
         }
-        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
-            dump_pm(mstart, mend);
-        } else {
-            for (; mstart < mend; ++mstart) {
-                cprintf("[PA: 0x%08x]: %02x\n", mstart,
-                        *(uint8_t *)KADDR(mstart));
-            }
+        uint32_t next = MIN(mend, ~(uint32_t)0 - KERNBASE + 1);
+        for (; mstart < next; ++mstart) {
+            cprintf("[PA: 0x%08x]: %02x\n", mstart,
+                    *(uint8_t *)KADDR(mstart));
         }
+        if (mstart < mend)
+            dump_pm(mstart, mend);
     } else {
         dump_vm(mstart, mend);
     }
@@ -615,3 +614,69 @@ help:
 
 ![](assets/cmd-dumpmem.png)
 
+## Challenge: Page Size Extension
+
+根据Intel IA-32 Manual Volume 3中的描述，使用4MB的大页，需要若干条件：
+
+- CR4的PSE位置位，启动大页扩展。
+- PDE的PS位置位，表示该PDE指向一个大页。
+- 大页指向的物理地址基址为4MB对齐的。
+
+其翻译机制比较简单，具体可见图：
+
+![](assets/huge-page-trans.gif)
+
+具体实现就比较简单了，首先在装载新的页表前设置CR4的PSE位：
+
+```C
+// Enable page size extension
+cr4 = rcr4();
+cr4 |= CR4_PSE;
+lcr4(cr4);
+```
+
+然后定义一个新的`boot_map_region_huge_page`函数，用于在映射KERNBASE以上区域时进行大页映射：
+
+```C
+static void 
+boot_map_region_huge_page(pde_t* pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm) 
+{
+	size_t off;
+
+	if (va & (PTSIZE - 1) || pa & (PTSIZE - 1) || size & (PTSIZE - 1))
+		panic("boot_map_region_huge_page");
+	
+	for (off = 0; off < size; off += PTSIZE) {
+		pgdir[PDX(va + off)] = (pa + off) | perm | PTE_P | PTE_PS;
+	}
+}
+```
+
+```C
+boot_map_region_huge_page(kern_pgdir, KERNBASE, ~(uint32_t)0 - KERNBASE + 1, 0, PTE_W);
+```
+
+还要更改`check_va2pa`函数（原始的函数不会检查大页），否则通过不了测试：
+
+```c
+static physaddr_t
+check_va2pa(pde_t *pgdir, uintptr_t va)
+{
+	pte_t *p;
+
+	pgdir = &pgdir[PDX(va)];
+	if (!(*pgdir & PTE_P))
+		return ~0;
+	// recognize huge page
+	if (*pgdir & PTE_PS)
+		return PTE_ADDR(*pgdir) | (PTX(va) << PTXSHIFT) | PGOFF(va);
+	p = (pte_t*) KADDR(PTE_ADDR(*pgdir));
+	if (!(p[PTX(va)] & PTE_P))
+		return ~0;
+	return PTE_ADDR(p[PTX(va)]);
+}
+```
+
+这是启用大页后，使用`dumpmem`后的结果（在我的`dumpmem`实现中，访问256MB以内的物理内存时采用的都是访问KERNBASE以上对应的虚拟内存的方法），与之前的`dumpmem 0xF0000000 10`的结果一致。
+
+![](assets/huge-page-outcome.png)

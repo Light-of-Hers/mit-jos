@@ -216,11 +216,6 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
     switch(tf->tf_trapno) {
-    case T_GPFLT: {
-        uint32_t index = (tf->tf_err >> 3) & 0x1FFF;
-        (void)index;
-        break;
-    }
     case T_PGFLT: {
         page_fault_handler(tf);
         return;
