@@ -32,7 +32,12 @@ elink_insert(struct EmbedLink *pos, struct EmbedLink *ln)
 static inline bool 
 elink_empty(struct EmbedLink * ln) 
 {
-    return ln->prev == ln && ln->next == ln;
+    if (ln->prev == ln) {
+        assert(ln->next == ln);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 static inline void 

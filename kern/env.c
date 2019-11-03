@@ -17,6 +17,32 @@
 #include <kern/cpu.h>
 #include <kern/spinlock.h>
 
+#ifdef CONF_MFQ
+struct EmbedLink* mfqs = NULL;
+
+static inline void
+env_mfq_down(struct Env* e) 
+{
+	uint32_t lv = MIN(e->env_mfq_level + 1, NMFQ - 1);
+	e->env_mfq_level = lv;
+	e->env_mfq_left_ticks = (1 << lv) * MFQ_SLICE;
+	elink_remove(&e->env_mfq_link);
+	elink_enqueue(&mfqs[lv], &e->env_mfq_link);
+}
+
+void 
+env_mfq_back(struct Env *e) 
+{
+	elink_remove(&e->env_mfq_link);
+	if (e->env_mfq_left_ticks > 0) {
+		elink_insert(&mfqs[e->env_mfq_level], &e->env_mfq_link);	
+	} else {
+		env_mfq_down(e);
+	}
+}
+
+#endif
+
 struct Env *envs = NULL;		// All environments
 static struct Env *env_free_list;	// Free environment list
 					// (linked by Env->env_link)
@@ -272,6 +298,12 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	elink_init(&e->env_ipc_link);
 	elink_init(&e->env_ipc_queue);
 
+#ifdef CONF_MFQ
+	e->env_mfq_level = 0;
+	e->env_mfq_left_ticks = MFQ_SLICE;
+	elink_enqueue(&mfqs[0], &e->env_mfq_link);
+#endif
+
 	// commit the allocation
 	env_free_list = e->env_link;
 	*newenv_store = e;
@@ -472,6 +504,12 @@ env_free(struct Env *e)
 	e->env_status = ENV_FREE;
 	e->env_link = env_free_list;
 	env_free_list = e;
+
+#ifdef CONF_MFQ
+	e->env_mfq_level = 0;
+	e->env_mfq_left_ticks = 0;
+	elink_remove(&e->env_mfq_link);
+#endif
 }
 
 //
@@ -549,13 +587,23 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	struct Env* cure = curenv;
 
-	// panic("env_run not yet implemented");
-    if (curenv && curenv->env_status == ENV_RUNNING)
-        curenv->env_status = ENV_RUNNABLE;
+#ifndef CONF_MFQ
+    if (cure && cure->env_status == ENV_RUNNING)
+        cure->env_status = ENV_RUNNABLE;
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
+#else 
+	if (cure && cure->env_status == ENV_RUNNING)
+        cure->env_status = ENV_RUNNABLE, env_mfq_back(cure);
+    curenv = e;
+    e->env_status = ENV_RUNNING;
+    e->env_runs += 1;
+	elink_remove(&e->env_mfq_link);
+#endif
+
     lcr3(PADDR(e->env_pgdir));
     unlock_kernel();
     env_pop_tf(&e->env_tf);

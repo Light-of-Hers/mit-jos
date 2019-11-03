@@ -255,9 +255,18 @@ trap_dispatch(struct Trapframe *tf)
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
     if (tf->tf_trapno == IRQ_OFFSET + IRQ_TIMER) {
-        lapic_eoi();
-        sched_yield();
+#ifndef CONF_MFQ
+		lapic_eoi();
+		sched_yield();
+		return;
+#else
+		struct Env* cure = curenv;
+		lapic_eoi();
+		if (cure && cure->env_mfq_left_ticks-- == 1) {
+			sched_yield();
+		}
         return;
+#endif
     }
 
 	// Unexpected trap: The user process or the kernel has a bug.

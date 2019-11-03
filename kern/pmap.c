@@ -168,6 +168,15 @@ mem_init(void)
     envs = (struct Env *) boot_alloc(NENV * sizeof(struct Env));
     memset(envs, 0, NENV * sizeof(struct Env));
 
+#ifdef CONF_MFQ
+	//////////////////////////////////////////////////////////////////////
+	// Make 'mfqs' point to an array of size 'NMFQ' of 'struct EmbedLink'.
+	mfqs = (struct EmbedLink* ) boot_alloc(NMFQ * sizeof(struct EmbedLink));
+	memset(mfqs, 0, NMFQ * sizeof(struct EmbedLink));
+	for (int i = 0 ; i < NMFQ; ++i)
+		elink_init(&mfqs[i]);
+#endif
+
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further

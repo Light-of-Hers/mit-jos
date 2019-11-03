@@ -8,6 +8,7 @@
 
 void sched_halt(void);
 
+#ifndef CONF_MFQ
 // Choose a user environment to run and run it.
 void
 sched_yield(void)
@@ -55,6 +56,31 @@ sched_yield(void)
 	// sched_halt never returns
     sched_halt();
 }
+#else 
+void 
+sched_yield(void)
+{
+	struct Env* idle = NULL;
+
+	for (int i = 0; i < NMFQ; ++i) {
+		if (!elink_empty(&mfqs[i])) {
+			idle = master(elink_queue_head(&mfqs[i]), struct Env, env_mfq_link);
+			// assert(idle->env_status == ENV_RUNNABLE);
+			if (idle->env_status != ENV_RUNNABLE) {
+				log_int(idle->env_status);
+				panic("only runnable env can be in mfq");	
+			}
+			break;
+		}
+	}
+	if (idle) {
+		env_run(idle);
+	} else if (curenv && curenv->env_status == ENV_RUNNING) {
+		env_run(curenv);
+	}
+	sched_halt();
+}
+#endif
 
 // Halt this CPU when there is nothing to do. Wait until the
 // timer interrupt wakes it up. This function never returns.

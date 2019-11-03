@@ -98,6 +98,11 @@ sys_exofork(void)
     child->env_status = ENV_NOT_RUNNABLE;
     child->env_tf = parent->env_tf;
     child->env_tf.tf_regs.reg_eax = 0;
+
+#ifdef CONF_MFQ
+    elink_remove(&child->env_mfq_link);
+#endif
+
     return child->env_id;
 }
 
@@ -126,6 +131,11 @@ sys_env_set_status(envid_t envid, int status)
         return -E_INVAL;
     if (r = envid2env(envid, &e, 1), r < 0)
         return r;
+
+#ifdef CONF_MFQ
+    if (status == ENV_RUNNABLE)
+        env_mfq_back(e);
+#endif
 
     e->env_status = status;
     return 0;
@@ -331,7 +341,11 @@ ipc_try_send(struct Env* dste, uint32_t value, void* srcva, unsigned perm)
     dste->env_ipc_value = value;
     dste->env_status = ENV_RUNNABLE;
     dste->env_tf.tf_regs.reg_eax = 0;
-    
+
+#ifdef CONF_MFQ
+    env_mfq_back(dste);
+#endif
+
     return 0;
 }
 
@@ -438,6 +452,10 @@ sys_ipc_recv(void *dstva)
             
         sender->env_status = ENV_RUNNABLE;
         sender->env_tf.tf_regs.reg_eax = r;
+
+#ifdef CONF_MFQ
+        env_mfq_back(sender);
+#endif
 
         if (r < 0)
             goto sleep;

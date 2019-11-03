@@ -7,6 +7,7 @@
 #include <inc/trap.h>
 #include <inc/memlayout.h>
 #include <inc/elink.h>
+#include <inc/config.h>
 
 typedef int32_t envid_t;
 
@@ -59,6 +60,12 @@ struct Env {
 
     // Exception handling
     void *env_pgfault_upcall; // Page fault upcall entry point
+
+#ifdef CONF_MFQ
+    struct EmbedLink env_mfq_link;
+    uint32_t env_mfq_level;
+    int env_mfq_left_ticks;
+#endif
 
     // Lab 4 IPC
     struct EmbedLink env_ipc_link;  // Embeded link to the blocking queue.
