@@ -55,6 +55,9 @@ int	sys_ipc_try_send(envid_t to_env, uint32_t value, void *pg, int perm);
 int	sys_ipc_recv(void *rcv_pg);
 int sys_ipc_send(envid_t to_env, uint32_t value, void *pg, int perm);
 
+envid_t	sys_env_snapshot(void);
+int sys_env_rollback(envid_t spst);
+
 // This must be inlined.  Exercise for reader: why?
 static inline envid_t __attribute__((always_inline))
 sys_exofork(void)

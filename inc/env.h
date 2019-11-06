@@ -43,6 +43,7 @@ enum {
 // Special environment types
 enum EnvType {
 	ENV_TYPE_USER = 0,
+    ENV_TYPE_SPST,  // snapshot
 };
 
 struct Env {
@@ -66,6 +67,9 @@ struct Env {
     uint32_t env_mfq_level;
     int env_mfq_left_ticks;
 #endif
+
+    EmbedLink env_spst_link;
+    envid_t env_spst_owner_id;
 
     // Lab 4 IPC
     EmbedLink env_ipc_link;  // Embeded link to the blocking queue.

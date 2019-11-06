@@ -131,6 +131,8 @@ sys_env_set_status(envid_t envid, int status)
         return -E_INVAL;
     if (r = envid2env(envid, &e, 1), r < 0)
         return r;
+    if (e->env_type == ENV_TYPE_SPST)
+        return -E_INVAL;
 
 #ifdef CONF_MFQ
     if (status == ENV_RUNNABLE)
@@ -339,12 +341,9 @@ ipc_try_send(struct Env* dste, uint32_t value, void* srcva, unsigned perm)
     dste->env_ipc_recving = 0;
     dste->env_ipc_from = cure->env_id;
     dste->env_ipc_value = value;
-    dste->env_status = ENV_RUNNABLE;
+    // dste->env_status = ENV_RUNNABLE;
     dste->env_tf.tf_regs.reg_eax = 0;
-
-#ifdef CONF_MFQ
-    env_mfq_add(dste);
-#endif
+    env_ready(dste);
 
     return 0;
 }
@@ -450,12 +449,9 @@ sys_ipc_recv(void *dstva)
 
         r = ipc_send_page(sender, cure);
             
-        sender->env_status = ENV_RUNNABLE;
+        // sender->env_status = ENV_RUNNABLE;
         sender->env_tf.tf_regs.reg_eax = r;
-
-#ifdef CONF_MFQ
-        env_mfq_add(sender);
-#endif
+        env_ready(sender);
 
         if (r < 0)
             goto sleep;
@@ -470,6 +466,78 @@ sleep:
     cure->env_status = ENV_NOT_RUNNABLE;
     sched_yield();
 	return 0;
+}
+
+static int
+sys_env_snapshot(envid_t eid)
+{
+    int r;
+    struct Env* cure = curenv;
+    struct Env* e;
+    
+    if (r = envid2env(eid, &e, 1), r < 0)
+        return r;
+    if (e == cure)
+        return -E_INVAL;
+
+    e->env_status = ENV_NOT_RUNNABLE;
+    e->env_type = ENV_TYPE_SPST;
+    e->env_spst_owner_id = cure->env_id;
+    elink_enqueue(&cure->env_spst_link, &e->env_spst_link);
+
+    return 0;
+}
+
+static int 
+sys_env_rollback(envid_t eid)
+{
+    int r;
+    struct Env* cure = curenv;
+    struct Env* e;
+    envid_t ceid;
+
+    if (r =envid2env(eid, &e, 1), r < 0)
+        return r;
+    if (e == cure)
+        return -E_INVAL;
+    if (e->env_type != ENV_TYPE_SPST || e->env_spst_owner_id != cure->env_id)
+        return -E_INVAL;
+
+    for(EmbedLink* ln = &e->env_spst_link; ln->next != &cure->env_spst_link; ) {
+        struct Env* tmpe = master(elink_remove(ln->next), struct Env, env_spst_link);
+        env_free(tmpe);
+    }
+
+    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); pdeno++) {
+
+		// only look at mapped page tables
+		if (!(cure->env_pgdir[pdeno] & PTE_P))
+			continue;
+
+		// find the pa and va of the page table
+		physaddr_t pa = PTE_ADDR(cure->env_pgdir[pdeno]);
+		pte_t* pt = (pte_t*) KADDR(pa);
+
+		// unmap all PTEs in this page table
+		for (uint32_t pteno = 0; pteno <= PTX(~0); pteno++) {
+			if (pt[pteno] & PTE_P)
+				page_remove(cure->env_pgdir, PGADDR(pdeno, pteno, 0));
+		}
+
+		// free the page table itself
+		cure->env_pgdir[pdeno] = 0;
+		page_decref(pa2page(pa));
+	}
+
+    // memmove(cure->env_pgdir, e->env_pgdir, PGSIZE);
+    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); pdeno++)
+        cure->env_pgdir[pdeno] = e->env_pgdir[pdeno];
+    cure->env_tf = e->env_tf;
+
+    memset(e->env_pgdir, 0, PGSIZE);
+    env_free(e);
+
+    return sys_exofork();
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -526,6 +594,12 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     }
     case SYS_ipc_send: {
         return sys_ipc_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);
+    }
+    case SYS_env_snapshot: {
+        return sys_env_snapshot((envid_t)a1);
+    }
+    case SYS_env_rollback: {
+        return sys_env_rollback((envid_t)a1);
     }
 	default:
 		return -E_INVAL;

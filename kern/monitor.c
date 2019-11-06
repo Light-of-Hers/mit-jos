@@ -13,6 +13,7 @@
 #include <kern/kdebug.h>
 #include <kern/trap.h>
 #include <kern/pmap.h>
+#include <kern/env.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -107,6 +108,7 @@ mon_showmap(int argc, char **argv, struct Trapframe *tf)
     uintptr_t vstart, vend;
     size_t vlen;
     pte_t *pte;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
 
     vstart = (uintptr_t)strtol(argv[1], 0, 0);
     vlen = argc >= 3 ? (size_t)strtol(argv[2], 0, 0) : 1;
@@ -116,10 +118,10 @@ mon_showmap(int argc, char **argv, struct Trapframe *tf)
     vend = ROUNDDOWN(vend, PGSIZE);
 
     for(; vstart <= vend; vstart += PGSIZE) {
-        pte = pgdir_walk(kern_pgdir, (void*)vstart, 0);
+        pte = pgdir_walk(pgdir, (void*)vstart, 0);
         if (pte && *pte & PTE_P) {
-            cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d\n",
-            vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W));
+            cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d, COW-bit: %d\n",
+            vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W), !!(*pte & 0x800));
         } else {
             cprintf("VA: 0x%08x, PA: No Mapping\n", vstart);
         }
@@ -143,11 +145,13 @@ mon_setperm(int argc, char **argv, struct Trapframe *tf)
     uintptr_t va;
     uint16_t perm;
     pte_t *pte;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
+
 
     va = (uintptr_t)strtol(argv[1], 0, 0);
     perm = (uint16_t)strtol(argv[2], 0, 0);
 
-    pte = pgdir_walk(kern_pgdir, (void*)va, 0);
+    pte = pgdir_walk(pgdir, (void*)va, 0);
     if (pte && *pte & PTE_P) {
         *pte = (*pte & ~0xFFF) | (perm & 0xFFF) | PTE_P;
     } else {
@@ -161,12 +165,12 @@ help:
 }
 
 static void 
-dump_vm(uint32_t mstart, uint32_t mend)
+dump_vm(pde_t* pgdir, uint32_t mstart, uint32_t mend)
 {
     uint32_t next;
     pte_t *pte;
     while (mstart < mend) {
-        if (!(pte = pgdir_walk(kern_pgdir, (void *)mstart, 0))) {
+        if (!(pte = pgdir_walk(pgdir, (void *)mstart, 0))) {
             next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
             for (; mstart < next; ++mstart)
                 cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
@@ -184,7 +188,7 @@ dump_vm(uint32_t mstart, uint32_t mend)
 }
 
 static void 
-dump_pm(uint32_t mstart, uint32_t mend)
+dump_pm(pde_t* pgdir, uint32_t mstart, uint32_t mend)
 {
     static const uint32_t map_base = 0;
     uint32_t next, base;
@@ -192,11 +196,11 @@ dump_pm(uint32_t mstart, uint32_t mend)
     while(mstart < mend) {
         next = MIN(ROUNDUP(mstart + 1, PGSIZE), mend);
         base = ROUNDDOWN(mstart, PGSIZE);
-        page_insert(kern_pgdir, &pages[base / PGSIZE], (void*)map_base, PTE_P);
+        page_insert(pgdir, &pages[base / PGSIZE], (void*)map_base, PTE_P);
         for (; mstart < next; ++mstart)
             cprintf("[PA: 0x%08x]: %02x\n", mstart, *((uint8_t*)(mstart - base + map_base)));
     }
-    page_remove(kern_pgdir, (void*)map_base);
+    page_remove(pgdir, (void*)map_base);
 }
 
 int 
@@ -226,6 +230,8 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
 
     uint32_t mstart, mend;
     size_t mlen;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
+
     
     mstart = (uint32_t)strtol(argv[1], 0, 0);
     mlen = (size_t)strtol(argv[2], 0, 0);
@@ -242,9 +248,9 @@ mon_dumpmem(int argc, char **argv, struct Trapframe *tf)
                     *(uint8_t *)KADDR(mstart));
         }
         if (mstart < mend)
-            dump_pm(mstart, mend);
+            dump_pm(pgdir, mstart, mend);
     } else {
-        dump_vm(mstart, mend);
+        dump_vm(pgdir, mstart, mend);
     }
     return 0;
 

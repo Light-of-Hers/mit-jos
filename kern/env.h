@@ -17,6 +17,8 @@ void 	env_mfq_pop(struct Env* e);
 
 #endif
 
+void 	env_ready(struct Env* e);
+
 extern struct Env *envs;		// All environments
 #define curenv (thiscpu->cpu_env)		// Current environment
 extern struct Segdesc gdt[];

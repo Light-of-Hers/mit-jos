@@ -42,6 +42,15 @@ env_mfq_pop(struct Env* e)
 
 #endif
 
+void 
+env_ready(struct Env* e)
+{
+	e->env_status = ENV_RUNNABLE;
+#ifdef CONF_MFQ
+	env_mfq_add(e);
+#endif
+}
+
 struct Env *envs = NULL;		// All environments
 static struct Env *env_free_list;	// Free environment list
 					// (linked by Env->env_link)
@@ -297,6 +306,8 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	elink_init(&e->env_ipc_link);
 	elink_init(&e->env_ipc_queue);
 
+	elink_init(&e->env_spst_link);
+
 #ifdef CONF_MFQ
 	e->env_mfq_level = 0;
 	e->env_mfq_left_ticks = MFQ_SLICE;
@@ -504,6 +515,23 @@ env_free(struct Env *e)
 	e->env_link = env_free_list;
 	env_free_list = e;
 
+	// wakeup the sleeping senders
+	while(!elink_empty(&e->env_ipc_queue)) {
+		struct Env* sender = master(elink_dequeue(&e->env_ipc_queue), struct Env, env_ipc_link);
+		env_ready(sender);
+		sender->env_tf.tf_regs.reg_eax = -E_BAD_ENV;
+	}
+	elink_remove(&e->env_ipc_link);
+
+	// clear the snapshot
+	if (e->env_type != ENV_TYPE_SPST) {
+		while(!elink_empty(&e->env_spst_link)) {
+			struct Env* spst = master(elink_dequeue(&e->env_spst_link), struct Env, env_spst_link);
+			env_free(spst);
+		}
+	}
+	elink_remove(&e->env_spst_link);
+
 #ifdef CONF_MFQ
 	e->env_mfq_level = 0;
 	e->env_mfq_left_ticks = 0;
@@ -588,18 +616,13 @@ env_run(struct Env *e)
 	// LAB 3: Your code here.
 	struct Env* cure = curenv;
 
-#ifndef CONF_MFQ
     if (cure && cure->env_status == ENV_RUNNING)
-        cure->env_status = ENV_RUNNABLE;
+        env_ready(cure);
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
-#else 
-	if (cure && cure->env_status == ENV_RUNNING)
-        cure->env_status = ENV_RUNNABLE, env_mfq_add(cure);
-    curenv = e;
-    e->env_status = ENV_RUNNING;
-    e->env_runs += 1;
+
+#ifdef CONF_MFQ
 	env_mfq_pop(e);
 #endif
 

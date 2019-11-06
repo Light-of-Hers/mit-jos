@@ -117,3 +117,11 @@ sys_ipc_recv(void *dstva)
 	return syscall(SYS_ipc_recv, 1, (uint32_t)dstva, 0, 0, 0, 0);
 }
 
+int 
+sys_env_rollback(envid_t eid)
+{
+	int r = syscall(SYS_env_rollback, 1, (uint32_t)eid, 0, 0, 0, 0);
+	if (r == 0)
+		panic("rollback should never return");
+	return r;
+}
