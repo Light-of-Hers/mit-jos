@@ -529,7 +529,6 @@ sys_env_rollback(envid_t eid)
 		page_decref(pa2page(pa));
 	}
 
-    // memmove(cure->env_pgdir, e->env_pgdir, PGSIZE);
     for (uint32_t pdeno = 0; pdeno < PDX(UTOP); pdeno++)
         cure->env_pgdir[pdeno] = e->env_pgdir[pdeno];
     cure->env_tf = e->env_tf;
