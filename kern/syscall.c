@@ -489,7 +489,7 @@ sys_env_snapshot(envid_t eid)
 }
 
 static int 
-sys_env_rollback(envid_t eid)
+sys_env_rollback(envid_t eid, uint32_t dmail)
 {
     int r;
     struct Env* cure = curenv;
@@ -498,45 +498,45 @@ sys_env_rollback(envid_t eid)
 
     if (r =envid2env(eid, &e, 1), r < 0)
         return r;
-    if (e == cure)
-        return -E_INVAL;
     if (e->env_type != ENV_TYPE_SPST || e->env_spst_owner_id != cure->env_id)
         return -E_INVAL;
 
+    // 将该快照之后记录的快照全部删除
     for(EmbedLink* ln = &e->env_spst_link; ln->next != &cure->env_spst_link; ) {
         struct Env* tmpe = master(elink_remove(ln->next), struct Env, env_spst_link);
         env_free(tmpe);
     }
 
-    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); pdeno++) {
+    // 将快照进程的页映射到当前进程，并将当前进程多余的页删去
+    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); ++pdeno) {
+        if (e->env_pgdir[pdeno] & PTE_P) {
+            pte_t *pt = (pte_t *)KADDR(PTE_ADDR(e->env_pgdir[pdeno]));
+            pte_t *pt2 = (cure->env_pgdir[pdeno] & PTE_P)
+                             ? (pte_t *)KADDR(PTE_ADDR(cure->env_pgdir[pdeno]))
+                             : NULL;
+            for (uint32_t pteno = 0; pteno < NPDENTRIES; ++pteno) {
+                if (pt[pteno] & PTE_P) {
+                    pte_t pte = pt[pteno];
+                    page_insert(cure->env_pgdir, pa2page(PTE_ADDR(pte)),
+                                PGADDR(pdeno, pteno, 0), pte & PTE_SYSCALL);
+                } else if (pt2 && pt2[pteno] & PTE_P) {
+                    page_remove(cure->env_pgdir, PGADDR(pdeno, pteno, 0));
+                }
+            }
+        } else if (cure->env_pgdir[pdeno] & PTE_P) {
+            pte_t *pt = (pte_t*)KADDR(PTE_ADDR(cure->env_pgdir[pdeno]));
+            for (uint32_t pteno = 0; pteno < NPDENTRIES; ++pteno) {
+                if (pt[pteno] & PTE_P)
+                    page_remove(cure->env_pgdir, PGADDR(pdeno, pteno, 0));
+            }
+        }
+    }
 
-		// only look at mapped page tables
-		if (!(cure->env_pgdir[pdeno] & PTE_P))
-			continue;
-
-		// find the pa and va of the page table
-		physaddr_t pa = PTE_ADDR(cure->env_pgdir[pdeno]);
-		pte_t* pt = (pte_t*) KADDR(pa);
-
-		// unmap all PTEs in this page table
-		for (uint32_t pteno = 0; pteno <= PTX(~0); pteno++) {
-			if (pt[pteno] & PTE_P)
-				page_remove(cure->env_pgdir, PGADDR(pdeno, pteno, 0));
-		}
-
-		// free the page table itself
-		cure->env_pgdir[pdeno] = 0;
-		page_decref(pa2page(pa));
-	}
-
-    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); pdeno++)
-        cure->env_pgdir[pdeno] = e->env_pgdir[pdeno];
     cure->env_tf = e->env_tf;
+    cure->env_spst_id = e->env_id;
+    cure->env_spst_dmail = dmail;
 
-    memset(e->env_pgdir, 0, PGSIZE);
-    env_free(e);
-
-    return sys_exofork();
+    return 0;
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -598,7 +598,7 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
         return sys_env_snapshot((envid_t)a1);
     }
     case SYS_env_rollback: {
-        return sys_env_rollback((envid_t)a1);
+        return sys_env_rollback((envid_t)a1, (uint32_t)a2);
     }
 	default:
 		return -E_INVAL;

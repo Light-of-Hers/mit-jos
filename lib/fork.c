@@ -192,7 +192,7 @@ syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 }
 
 envid_t
-sys_env_snapshot(void)
+sys_env_snapshot(uint32_t *dmail_store)
 {
  #define PANIC panic("sys_env_snapshot: %e", r)
 
@@ -204,6 +204,11 @@ sys_env_snapshot(void)
 
     if (ceid = sys_exofork(), ceid < 0)
         return ceid;
+    if (ceid == 0) {
+        if (dmail_store)
+            *dmail_store = thisenv->env_spst_dmail;
+        return thisenv->env_spst_id;
+    }
     // assume UTOP == UXSTACKTOP
     for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
         uint32_t pde = uvpd[pn / NPDENTRIES];

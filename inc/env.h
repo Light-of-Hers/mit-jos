@@ -68,12 +68,14 @@ struct Env {
     int env_mfq_left_ticks;
 #endif
 
-    EmbedLink env_spst_link;
-    envid_t env_spst_owner_id;
+    EmbedLink env_spst_link;    // Embeded link to the snapshot list
+    envid_t env_spst_owner_id;  // snapshot's owner env's id
+    envid_t env_spst_id;        // rollbacked snapshot's id
+    uint32_t env_spst_dmail;    // DeLorean Mail（这一切都是命运石之门的选择!）
 
     // Lab 4 IPC
-    EmbedLink env_ipc_link;  // Embeded link to the blocking queue.
-    EmbedLink env_ipc_queue; // Blocking queue.
+    EmbedLink env_ipc_link;         // Embeded link to the blocking queue.
+    EmbedLink env_ipc_queue;        // Blocking queue.
     bool env_ipc_recving;           // Env is blocked receiving
     void *env_ipc_dstva;            // VA at which to map received page
     uint32_t env_ipc_value;         // Data value sent to us

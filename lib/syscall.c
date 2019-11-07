@@ -118,9 +118,9 @@ sys_ipc_recv(void *dstva)
 }
 
 int 
-sys_env_rollback(envid_t eid)
+sys_env_rollback(envid_t eid, uint32_t dmail)
 {
-	int r = syscall(SYS_env_rollback, 1, (uint32_t)eid, 0, 0, 0, 0);
+	int r = syscall(SYS_env_rollback, 1, (uint32_t)eid, dmail, 0, 0, 0);
 	if (r == 0)
 		panic("rollback should never return");
 	return r;
