@@ -5,10 +5,6 @@
 #include <inc/log.h>
 #include <inc/assert.h>
 
-// PTE_COW marks copy-on-write page table entries.
-// It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
-#define PTE_COW		0x800
-
 extern volatile pde_t uvpd[];
 extern volatile pte_t uvpt[];
 extern void _pgfault_upcall(void);
@@ -197,40 +193,16 @@ sys_env_snapshot(uint32_t *dmail_store)
  #define PANIC panic("sys_env_snapshot: %e", r)
 
     int r;
-    envid_t ceid;
-
-
     set_pgfault_handler(pgfault);
 
-    if (ceid = sys_exofork(), ceid < 0)
-        return ceid;
-    if (ceid == 0) {
+    if (r = syscall(SYS_env_snapshot, 0, 0, 0, 0, 0, 0), r < 0)
+        PANIC;
+    if (r == 0) {
         if (dmail_store)
             *dmail_store = thisenv->env_spst_dmail;
         return thisenv->env_spst_id;
     }
-    // assume UTOP == UXSTACKTOP
-    for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
-        uint32_t pde = uvpd[pn / NPDENTRIES];
-        if (!(pde & PTE_P)) {
-            pn += NPDENTRIES;
-        } else {
-            size_t next = MIN(UTOP / PGSIZE - 1, pn + NPDENTRIES);
-            for (; pn < next; ++pn) {
-                uint32_t pte = uvpt[pn];
-                if (pte & PTE_P && pte & PTE_U)
-                    if (r = duppage(ceid, pn), r < 0)
-                        PANIC;
-            }
-        }
-    }
-    if (r = sys_page_alloc(ceid, (void *)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W), r < 0)
-        PANIC;
-    if (r = sys_env_set_pgfault_upcall(ceid, _pgfault_upcall), r < 0)
-        PANIC;
-    if (r = syscall(SYS_env_snapshot, 1, ceid, 0, 0, 0, 0), r < 0)
-        PANIC;
-    return ceid;
+    return r;
 
 #undef PANIC   
 }

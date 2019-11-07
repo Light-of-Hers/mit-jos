@@ -468,36 +468,67 @@ sleep:
 	return 0;
 }
 
-static int
-sys_env_snapshot(envid_t eid)
+static envid_t
+sys_env_snapshot(void)
 {
+#define CHECK(x) do {if (r = (x), r < 0) return r;} while(0)
+
     int r;
     struct Env* cure = curenv;
     struct Env* e;
     
-    if (r = envid2env(eid, &e, 1), r < 0)
-        return r;
-    if (e == cure)
-        return -E_INVAL;
+    CHECK(env_alloc(&e, cure->env_id));
 
+    e->env_tf = cure->env_tf;
     e->env_status = ENV_NOT_RUNNABLE;
     e->env_type = ENV_TYPE_SPST;
     e->env_spst_owner_id = cure->env_id;
     elink_enqueue(&cure->env_spst_link, &e->env_spst_link);
 
-    return 0;
+#ifdef CONF_MFQ
+    env_mfq_pop(e);
+#endif
+
+    for (uint32_t pdeno = 0; pdeno < PDX(UTOP); ++pdeno) {
+        if ((cure->env_pgdir[pdeno] & PTE_P) == 0)
+            continue;
+        pte_t* pt = (pte_t*)KADDR(PTE_ADDR(cure->env_pgdir[pdeno]));
+
+        for (uint32_t pteno = 0; pteno < NPDENTRIES; ++pteno) {
+            if (pt[pteno] & PTE_P) {
+                pte_t pte = pt[pteno];
+                struct PageInfo* pp = pa2page(PTE_ADDR(pte));
+                void* va = PGADDR(pdeno, pteno, 0);
+                assert(pte & PTE_U);
+                if (pte & PTE_W || pte & PTE_COW) {
+                    CHECK(page_insert(e->env_pgdir, pp, va, PTE_P | PTE_U | PTE_COW));
+                    CHECK(page_insert(cure->env_pgdir, pp, va, PTE_P | PTE_U | PTE_COW));
+                } else {
+                    CHECK(page_insert(e->env_pgdir, pp, va, PTE_P | PTE_U));
+                }
+            }
+        }
+    }
+    struct PageInfo* pp = page_lookup(cure->env_pgdir, (void*)(UXSTACKTOP - PGSIZE), 0);
+    CHECK(page_insert(e->env_pgdir, pp, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W));
+    CHECK(page_insert(cure->env_pgdir, pp, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W));
+
+    return e->env_id;
+
+#undef CHECK
 }
 
 static int 
 sys_env_rollback(envid_t eid, uint32_t dmail)
 {
+#define CHECK(x) do {if (r = (x), r < 0) return r;} while(0)
+
     int r;
     struct Env* cure = curenv;
     struct Env* e;
     envid_t ceid;
 
-    if (r =envid2env(eid, &e, 1), r < 0)
-        return r;
+    CHECK(envid2env(eid, &e, 1));
     if (e->env_type != ENV_TYPE_SPST || e->env_spst_owner_id != cure->env_id)
         return -E_INVAL;
 
@@ -517,8 +548,8 @@ sys_env_rollback(envid_t eid, uint32_t dmail)
             for (uint32_t pteno = 0; pteno < NPDENTRIES; ++pteno) {
                 if (pt[pteno] & PTE_P) {
                     pte_t pte = pt[pteno];
-                    page_insert(cure->env_pgdir, pa2page(PTE_ADDR(pte)),
-                                PGADDR(pdeno, pteno, 0), pte & PTE_SYSCALL);
+                    CHECK(page_insert(cure->env_pgdir, pa2page(PTE_ADDR(pte)),
+                                PGADDR(pdeno, pteno, 0), pte & PTE_SYSCALL));
                 } else if (pt2 && pt2[pteno] & PTE_P) {
                     page_remove(cure->env_pgdir, PGADDR(pdeno, pteno, 0));
                 }
@@ -537,6 +568,8 @@ sys_env_rollback(envid_t eid, uint32_t dmail)
     cure->env_spst_dmail = dmail;
 
     return 0;
+
+#undef CHECK
 }
 
 // Dispatches to the correct kernel function, passing the arguments.
@@ -595,7 +628,7 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
         return sys_ipc_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);
     }
     case SYS_env_snapshot: {
-        return sys_env_snapshot((envid_t)a1);
+        return sys_env_snapshot();
     }
     case SYS_env_rollback: {
         return sys_env_rollback((envid_t)a1, (uint32_t)a2);
