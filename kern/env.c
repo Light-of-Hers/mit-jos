@@ -24,9 +24,9 @@ void
 env_mfq_add(struct Env *e) 
 {
 	elink_remove(&e->env_mfq_link);
-	if (e->env_mfq_left_ticks > 0) {
+	if (e->env_mfq_left_ticks > 0) { // time slice left
 		elink_insert(&mfqs[e->env_mfq_level], &e->env_mfq_link);	
-	} else {
+	} else { // no time slice left
 		uint32_t lv = MIN(e->env_mfq_level + 1, NMFQ - 1);
 		e->env_mfq_level = lv;
 		e->env_mfq_left_ticks = (1 << lv) * MFQ_SLICE;
@@ -614,10 +614,10 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
-	struct Env* cure = curenv;
+	struct Env* olde = curenv;
 
-    if (cure && cure->env_status == ENV_RUNNING)
-        env_ready(cure);
+    if (olde && olde->env_status == ENV_RUNNING)
+        env_ready(olde);
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
@@ -626,7 +626,8 @@ env_run(struct Env *e)
 	env_mfq_pop(e);
 #endif
 
-    lcr3(PADDR(e->env_pgdir));
+	if (olde != e) // 只有进程切换才进行，尽可能避免TLB失效
+		lcr3(PADDR(e->env_pgdir));
     unlock_kernel();
     env_pop_tf(&e->env_tf);
 }

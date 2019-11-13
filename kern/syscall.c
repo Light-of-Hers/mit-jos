@@ -158,7 +158,7 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func)
 	// panic("sys_env_set_pgfault_upcall not implemented");
     int r;
     struct Env *e;
-
+    
     if (r = envid2env(envid, &e, 1), r < 0)
         return r;
     e->env_pgfault_upcall = func;
@@ -513,6 +513,8 @@ sys_env_snapshot(void)
     CHECK(page_insert(e->env_pgdir, pp, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W));
     CHECK(page_insert(cure->env_pgdir, pp, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W));
 
+    cure->env_spst_dmail = EMPTY_DMAIL;
+
     return e->env_id;
 
 #undef CHECK
@@ -564,10 +566,9 @@ sys_env_rollback(envid_t eid, uint32_t dmail)
     }
 
     cure->env_tf = e->env_tf;
-    cure->env_spst_id = e->env_id;
     cure->env_spst_dmail = dmail;
 
-    return 0;
+    return e->env_id;
 
 #undef CHECK
 }

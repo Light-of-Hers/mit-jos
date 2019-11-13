@@ -197,11 +197,8 @@ sys_env_snapshot(uint32_t *dmail_store)
 
     if (r = syscall(SYS_env_snapshot, 0, 0, 0, 0, 0, 0), r < 0)
         PANIC;
-    if (r == 0) {
-        if (dmail_store)
-            *dmail_store = thisenv->env_spst_dmail;
-        return thisenv->env_spst_id;
-    }
+    if (dmail_store)
+        *dmail_store = thisenv->env_spst_dmail;
     return r;
 
 #undef PANIC   

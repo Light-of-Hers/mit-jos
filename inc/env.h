@@ -70,8 +70,8 @@ struct Env {
 
     EmbedLink env_spst_link;    // Embeded link to the snapshot list
     envid_t env_spst_owner_id;  // snapshot's owner env's id
-    envid_t env_spst_id;        // rollbacked snapshot's id
     uint32_t env_spst_dmail;    // DeLorean Mail（这一切都是命运石之门的选择!）
+#define EMPTY_DMAIL ~0U
 
     // Lab 4 IPC
     EmbedLink env_ipc_link;         // Embeded link to the blocking queue.
