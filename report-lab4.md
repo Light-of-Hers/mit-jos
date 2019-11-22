@@ -1686,3 +1686,26 @@ sys_env_rollback(envid_t eid, uint32_t dmail)
 }
 ```
 
+
+
+## Compatible to Page Size Extension
+
+在本Lab的多处理器环境下若要兼容Lab2一个Challenge中的大页扩展，需要在`kern/init.c`的`mp_main`函数内，加载页表之前设置好CR4寄存器的值：
+
+```C
+void
+mp_main(void)
+{
+#ifdef CONF_HUGE_PAGE
+	// Enable page size extension
+	uint32_t cr4;
+	cr4 = rcr4();
+	cr4 |= CR4_PSE;
+	lcr4(cr4);
+#endif
+	// We are in high EIP now, safe to switch to kern_pgdir 
+	lcr3(PADDR(kern_pgdir));
+	// ......
+}
+```
+
