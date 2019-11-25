@@ -449,3 +449,46 @@ Score: 150/150
 
 
 
+## Challenge: Disk Buffer Cache
+
+### 目的
+
+限制在物理内存中缓存的磁盘块的个数
+
+### 原理
+
++ 
+
+### 测试
+
+将`NCACHE`设为16（基本上可以保证肯定会有）后的测试结果，
+
+```
+internal FS tests [fs/test.c]: OK (1.4s) 
+  fs i/o: OK 
+  check_bc: OK 
+  check_super: OK 
+  check_bitmap: OK 
+  alloc_block: OK 
+  file_open: OK 
+  file_get_block: OK 
+  file_flush/file_truncate/file rewrite: OK 
+testfile: OK (1.1s) 
+  serve_open/file_stat/file_close: OK 
+  file_read: OK 
+  file_write: OK 
+  file_read after file_write: OK 
+  open: OK 
+  large file: OK 
+spawn via spawnhello: OK (1.7s) 
+    (Old jos.out.spawn failure log removed)
+Protection I/O space: OK (1.0s) 
+PTE_SHARE [testpteshare]: OK (1.8s) 
+    (Old jos.out.pte_share failure log removed)
+PTE_SHARE [testfdsharing]: OK (2.2s) 
+start the shell [icode]: Timeout! OK (31.8s) 
+testshell: OK (1.9s) 
+primespipe: OK (5.5s) 
+Score: 150/150
+```
+

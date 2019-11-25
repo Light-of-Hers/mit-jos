@@ -40,10 +40,14 @@ block_is_free(uint32_t blockno)
 void
 free_block(uint32_t blockno)
 {
+	int r;
 	// Blockno zero is the null pointer of block numbers.
 	if (blockno == 0)
 		panic("attempt to free zero block");
 	bitmap[blockno/32] |= 1<<(blockno%32);
+	// 释放缓存
+	if (r = sys_page_unmap(0, diskaddr(blockno)), r < 0)
+		panic("free_block: %e", r);
 }
 
 // Search the bitmap for a free block and allocate it.  When you

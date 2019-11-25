@@ -7,4 +7,6 @@
 
 // #define CONF_MFQ
 
+#define CONF_BUF_CACHE
+
 #endif

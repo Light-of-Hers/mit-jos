@@ -5,6 +5,7 @@
 
 #include <inc/x86.h>
 #include <inc/string.h>
+#include <inc/log.h>
 
 #include "fs.h"
 
