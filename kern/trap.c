@@ -68,63 +68,19 @@ static const char *trapname(int trapno)
 
 #define TH(n) extern void __handler##n##__ (void);
 #define THE(n) TH(n)
-TH(0)
-TH(1)
-TH(2)
-TH(3)
-TH(4)
-TH(5)
-TH(6)
-TH(7)
-THE(8)
-THE(10)
-THE(11)
-THE(12)
-THE(13)
-THE(14)
-TH(16)
-THE(17)
-TH(18)
-TH(19)
-TH(48)
 
-TH(32)
-TH(33)
-TH(36)
-TH(39)
-TH(46)
+#include <kern/trapentry.inc>
+
 #undef THE
 #undef TH
 
 #define TH(n) [n] = __handler##n##__,
 #define THE(n) TH(n)
-static void (* handlers[256])(void) = {
-TH(0)
-TH(1)
-TH(2)
-TH(3)
-TH(4)
-TH(5)
-TH(6)
-TH(7)
-THE(8)
-THE(10)
-THE(11)
-THE(12)
-THE(13)
-THE(14)
-TH(16)
-THE(17)
-TH(18)
-TH(19)
-TH(48)
 
-TH(32)
-TH(33)
-TH(36)
-TH(39)
-TH(46)
+static void (* handlers[256])(void) = {
+#include <kern/trapentry.inc>
 };
+
 #undef THE
 #undef TH
 
@@ -260,15 +216,11 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
     switch(tf->tf_trapno) {
-    case T_GPFLT: {
-        uint32_t index = (tf->tf_err >> 3) & 0x1FFF;
-        (void)index;
-        break;
-    }
     case T_PGFLT: {
         page_fault_handler(tf);
         return;
     }
+	case T_DEBUG:
     case T_BRKPT: {
         monitor(tf);
         return;
@@ -303,9 +255,18 @@ trap_dispatch(struct Trapframe *tf)
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
     if (tf->tf_trapno == IRQ_OFFSET + IRQ_TIMER) {
-        lapic_eoi();
-        sched_yield();
+#ifndef CONF_MFQ
+		lapic_eoi();
+		sched_yield();
+		return;
+#else
+		struct Env* cure = curenv;
+		lapic_eoi();
+		if (cure && cure->env_mfq_left_ticks-- == 1) {
+			sched_yield();
+		}
         return;
+#endif
     }
 
 	// Handle keyboard and serial interrupts.
@@ -447,7 +408,7 @@ page_fault_handler(struct Trapframe *tf)
 	// LAB 4: Your code here.
     // check upcall
     if (!curenv->env_pgfault_upcall) {
-        log("no upcall\n");
+        log("no upcall");
         goto bad;
     }
     // check whether upcall and xstack are in user space
@@ -455,7 +416,7 @@ page_fault_handler(struct Trapframe *tf)
     user_mem_assert(curenv, (void*)(UXSTACKTOP - 1), 0, PTE_U | PTE_W);
     // check xstack overflow
     if (fault_va < UXSTACKTOP - PGSIZE && fault_va >= UXSTACKTOP - 2 * PGSIZE) {
-        log("xstack overflow\n");
+        log("xstack overflow");
         goto bad;
     }
 
@@ -470,7 +431,7 @@ page_fault_handler(struct Trapframe *tf)
     }
     // stack overflow
     if (esp < UXSTACKTOP - PGSIZE) {
-        log("xstack overflow\n");
+        log("xstack overflow");
         goto bad;
     }
     

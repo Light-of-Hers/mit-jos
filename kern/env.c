@@ -7,6 +7,7 @@
 #include <inc/assert.h>
 #include <inc/elf.h>
 #include <inc/log.h>
+#include <inc/elink.h>
 
 #include <kern/env.h>
 #include <kern/pmap.h>
@@ -15,6 +16,40 @@
 #include <kern/sched.h>
 #include <kern/cpu.h>
 #include <kern/spinlock.h>
+
+#ifdef CONF_MFQ
+EmbedLink* mfqs = NULL;
+
+void 
+env_mfq_add(struct Env *e) 
+{
+	elink_remove(&e->env_mfq_link);
+	if (e->env_mfq_left_ticks > 0) { // time slice left
+		elink_insert(&mfqs[e->env_mfq_level], &e->env_mfq_link);	
+	} else { // no time slice left
+		uint32_t lv = MIN(e->env_mfq_level + 1, NMFQ - 1);
+		e->env_mfq_level = lv;
+		e->env_mfq_left_ticks = (1 << lv) * MFQ_SLICE;
+		elink_enqueue(&mfqs[lv], &e->env_mfq_link);
+	}
+}
+
+void 
+env_mfq_pop(struct Env* e)
+{
+	elink_remove(&e->env_mfq_link);
+}
+
+#endif
+
+void 
+env_ready(struct Env* e)
+{
+	e->env_status = ENV_RUNNABLE;
+#ifdef CONF_MFQ
+	env_mfq_add(e);
+#endif
+}
 
 struct Env *envs = NULL;		// All environments
 static struct Env *env_free_list;	// Free environment list
@@ -268,6 +303,16 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 
 	// Also clear the IPC receiving flag.
 	e->env_ipc_recving = 0;
+	elink_init(&e->env_ipc_link);
+	elink_init(&e->env_ipc_queue);
+
+	elink_init(&e->env_spst_link);
+
+#ifdef CONF_MFQ
+	e->env_mfq_level = 0;
+	e->env_mfq_left_ticks = MFQ_SLICE;
+	elink_enqueue(&mfqs[0], &e->env_mfq_link);
+#endif
 
 	// commit the allocation
 	env_free_list = e->env_link;
@@ -476,6 +521,29 @@ env_free(struct Env *e)
 	e->env_status = ENV_FREE;
 	e->env_link = env_free_list;
 	env_free_list = e;
+
+	// wakeup the sleeping senders
+	while(!elink_empty(&e->env_ipc_queue)) {
+		struct Env* sender = master(elink_dequeue(&e->env_ipc_queue), struct Env, env_ipc_link);
+		env_ready(sender);
+		sender->env_tf.tf_regs.reg_eax = -E_BAD_ENV;
+	}
+	elink_remove(&e->env_ipc_link);
+
+	// clear the snapshot
+	if (e->env_type != ENV_TYPE_SPST) {
+		while(!elink_empty(&e->env_spst_link)) {
+			struct Env* spst = master(elink_dequeue(&e->env_spst_link), struct Env, env_spst_link);
+			env_free(spst);
+		}
+	}
+	elink_remove(&e->env_spst_link);
+
+#ifdef CONF_MFQ
+	e->env_mfq_level = 0;
+	e->env_mfq_left_ticks = 0;
+	env_mfq_pop(e);
+#endif
 }
 
 //
@@ -553,15 +621,21 @@ env_run(struct Env *e)
 	//	e->env_tf to sensible values.
 
 	// LAB 3: Your code here.
+	struct Env* olde = curenv;
 
-	// panic("env_run not yet implemented");
-    if (curenv && curenv->env_status == ENV_RUNNING)
-        curenv->env_status = ENV_RUNNABLE;
+    if (olde && olde->env_status == ENV_RUNNING)
+        env_ready(olde);
     curenv = e;
     e->env_status = ENV_RUNNING;
     e->env_runs += 1;
+
+#ifdef CONF_MFQ
+	env_mfq_pop(e);
+#endif
+
+	if (olde != e) // 只有进程切换才进行，尽可能避免TLB失效
+		lcr3(PADDR(e->env_pgdir));
     unlock_kernel();
-    lcr3(PADDR(e->env_pgdir));
     env_pop_tf(&e->env_tf);
 }
 

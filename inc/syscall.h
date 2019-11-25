@@ -14,9 +14,12 @@ enum {
 	SYS_env_set_status,
 	SYS_env_set_trapframe,
 	SYS_env_set_pgfault_upcall,
+	SYS_env_snapshot,
+	SYS_env_rollback,
 	SYS_yield,
 	SYS_ipc_try_send,
 	SYS_ipc_recv,
+	SYS_ipc_send,
 	NSYSCALLS
 };
 

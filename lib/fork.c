@@ -5,10 +5,6 @@
 #include <inc/log.h>
 #include <inc/assert.h>
 
-// PTE_COW marks copy-on-write page table entries.
-// It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
-#define PTE_COW		0x800
-
 extern volatile pde_t uvpd[];
 extern volatile pte_t uvpt[];
 extern void _pgfault_upcall(void);
@@ -43,9 +39,9 @@ pgfault(struct UTrapframe *utf)
             (uvpt[PGNUM(addr)] & PTE_COW) && 
             (err & FEC_WR) && 
             1
-        ))
+        )) {
         panic(
-            "[0x%08x] user page fault va 0x%08x ip 0x%08x\n"
+            "[0x%08x] user page fault va 0x%08x ip 0x%08x: "
             "[%s, %s, %s]",
             sys_getenvid(),
             utf->utf_fault_va,
@@ -54,6 +50,7 @@ pgfault(struct UTrapframe *utf)
             err & 2 ? "write" : "read",
             err & 1 ? "protection" : "not-present"
         );
+    }
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
@@ -70,7 +67,6 @@ pgfault(struct UTrapframe *utf)
     if (r = sys_page_unmap(0, PFTEMP), r < 0)
         PANIC;
     return;
-	// panic("pgfault not implemented");
 
 #undef PANIC
 }
@@ -169,10 +165,100 @@ fork(void)
 #undef PANIC
 }
 
+static inline int32_t
+syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
+{
+	int32_t ret;
+
+	asm volatile("int %1\n"
+		     : "=a" (ret)
+		     : "i" (T_SYSCALL),
+		       "a" (num),
+		       "d" (a1),
+		       "c" (a2),
+		       "b" (a3),
+		       "D" (a4),
+		       "S" (a5)
+		     : "cc", "memory");
+
+	if(check && ret > 0)
+		panic("syscall %d returned %d (> 0)", num, ret);
+
+	return ret;
+}
+
+envid_t
+sys_env_snapshot(uint32_t *dmail_store)
+{
+ #define PANIC panic("sys_env_snapshot: %e", r)
+
+    int r;
+    set_pgfault_handler(pgfault);
+
+    if (r = syscall(SYS_env_snapshot, 0, 0, 0, 0, 0, 0), r < 0)
+        PANIC;
+    if (dmail_store)
+        *dmail_store = thisenv->env_spst_dmail;
+    return r;
+
+#undef PANIC   
+}
+
+static int 
+sduppage(envid_t envid, unsigned pn) 
+{
+    int r;
+    void *pg;
+    pte_t pte;
+
+    pg = (void*)(pn * PGSIZE);
+    pte = uvpt[pn];
+
+    assert(pte & PTE_P && pte & PTE_U);
+    if (r = sys_page_map(0, pg, envid, pg, pte & PTE_SYSCALL), r < 0)
+        return r;
+
+    return 0;   
+}
+
 // Challenge!
 int
 sfork(void)
 {
-	panic("sfork not implemented");
-	return -E_INVAL;
+	// panic("sfork not implemented");
+#define PANIC panic("sfork: %e", r)
+    int r;
+    envid_t ceid, peid;
+
+    set_pgfault_handler(pgfault);
+    
+    if (ceid = sys_exofork(), ceid == 0) {
+        thisenv = &envs[ENVX(sys_getenvid())];
+    } else if (ceid > 0) {
+        // assume UTOP == UXSTACKTOP
+        for (size_t pn = 0; pn < UTOP / PGSIZE - 1;) {
+            uint32_t pde = uvpd[pn / NPDENTRIES];
+            if (!(pde & PTE_P)) {
+                pn += NPDENTRIES;
+            } else {
+                size_t next = MIN(UTOP / PGSIZE - 1, pn + NPDENTRIES);
+                for (; pn < next; ++pn) {
+                    uint32_t pte = uvpt[pn];
+                    if (pte & PTE_P && pte & PTE_U)
+                        if (r = sduppage(ceid, pn), r < 0)
+                            PANIC;
+                }
+            }
+        }
+        if (r = duppage(ceid, (USTACKTOP - 1) / PGSIZE), r < 0)
+            PANIC;
+        if (r = sys_page_alloc(ceid, (void*)(UXSTACKTOP - PGSIZE), PTE_P | PTE_U | PTE_W), r < 0)
+            PANIC;
+        if (r = sys_env_set_pgfault_upcall(ceid, _pgfault_upcall), r < 0)
+            PANIC;
+        if (r = sys_env_set_status(ceid, ENV_RUNNABLE), r < 0)
+            PANIC;
+    }
+    return ceid;
+#undef PANIC
 }

@@ -6,6 +6,19 @@
 #include <inc/env.h>
 #include <kern/cpu.h>
 
+#ifdef CONF_MFQ 
+
+#define NMFQ 5
+#define MFQ_SLICE 2
+extern EmbedLink* mfqs;
+
+void 	env_mfq_add(struct Env* e);
+void 	env_mfq_pop(struct Env* e);
+
+#endif
+
+void 	env_ready(struct Env* e);
+
 extern struct Env *envs;		// All environments
 #define curenv (thiscpu->cpu_env)		// Current environment
 extern struct Segdesc gdt[];
