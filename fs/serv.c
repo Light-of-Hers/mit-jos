@@ -217,9 +217,9 @@ serve_read(envid_t envid, union Fsipc *ipc)
     int r;
     struct OpenFile *o;
 
-    if (r = openfile_lookup(envid, ipc->read.req_fileid, &o), r < 0)
+    if (r = openfile_lookup(envid, req->req_fileid, &o), r < 0)
         return r;
-    if (r = file_read(o->o_file, ipc->readRet.ret_buf, ipc->read.req_n, o->o_fd->fd_offset), r < 0)
+    if (r = file_read(o->o_file, ret->ret_buf, req->req_n, o->o_fd->fd_offset), r < 0)
         return r;
     o->o_fd->fd_offset += r;
 	return r;
