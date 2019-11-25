@@ -1,5 +1,6 @@
 #include <inc/string.h>
 #include <inc/partition.h>
+#include <inc/config.h>
 
 #include "fs.h"
 
@@ -201,6 +202,13 @@ file_get_block(struct File *f, uint32_t filebno, char **blk)
         *diskbno = (uint32_t)r;
     }
     *blk = (char*)diskaddr(*diskbno);
+
+#ifdef CONF_BUF_CACHE
+	extern int bufc_visit(void);
+	if (r = bufc_visit(), r < 0)
+		return r;
+#endif
+
     return 0;
 }
 

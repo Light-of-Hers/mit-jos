@@ -455,13 +455,184 @@ Score: 150/150
 
 限制在物理内存中缓存的磁盘块的个数
 
+
+
 ### 原理
 
-+ 
++ 用特定结构维护当前缓存着的磁盘块信息。
++ 维护一个计数器：
+  + 每次对文件磁盘块访问时（调用`file_get_block`时），计数器加一。
+  + 当计数器达到一定量时，清空计数器，扫描所有已缓存块，将其Access位清零。
++ 当缓存块数超出上限时：
+  + 扫描缓存块，释放所有Access位为0的块。
+  + 若找不到Access位为0的块，则释放最早缓存的一个块。
++ 一些系统保留的磁盘块（super块，bitmap块等）不考虑在内，也就是说这些保留块会永远驻留在内存中。
+
+
+
+### 实现
+
+在`fs/bc.c`中实现。实现代码如下，具体说明见注释。
+
+```C
+
+#define NCACHE 1024
+#define NVISIT (NCACHE / 4)
+typedef struct BufferCache {
+	struct BufferCache *bufc_free_link;
+	EmbedLink bufc_used_link;
+	void *bufc_addr;
+} BufferCache;
+
+static BufferCache bcaches[NCACHE];
+static BufferCache *bufc_free;
+static EmbedLink bufc_used;
+static int ncache = 0;
+static int nvisit = 0;
+
+static void bufc_init(void);
+static int bufc_alloc(void *addr);
+int bufc_visit(void);
+static int bufc_evict(void);
+static int bufc_remove(BufferCache *bc);
+static bool is_reserved(void *addr);
+
+// 是否为保留块？
+static bool 
+is_reserved(void *addr)
+{
+	return addr < diskaddr(2);
+}
+
+// 每次page fault引入磁盘块后都会调用该函数
+static int
+bufc_alloc(void *addr)
+{
+	int r;
+
+	// 忽略保留块
+	if (is_reserved(addr))
+		return 0;
+	// 缓存块数达到上限，驱逐一些块
+	if (ncache == NCACHE) {
+		if (r = bufc_evict(), r < 0)
+			return r;
+	}
+	// 为addr分配一个块
+	assert(bufc_free);
+	ncache++;
+	BufferCache *bc = bufc_free;
+	bufc_free = bufc_free->bufc_free_link;
+	elink_enqueue(&bufc_used, &bc->bufc_used_link);
+	bc->bufc_addr = addr;
+
+	return 0;
+}
+// 初始化相关数据结构
+static void
+bufc_init(void)
+{
+	bufc_free = NULL;
+	for (int i = 0; i < NCACHE; ++i) {
+		elink_init(&bcaches[i].bufc_used_link);
+		bcaches[i].bufc_free_link = bufc_free, bufc_free = bcaches + i;
+		bcaches[i].bufc_addr = 0;
+	}
+	elink_init(&bufc_used);
+}
+// 增加计数器。若达上限则扫描缓存块，将其Access位清零
+// 注意清零之前需要flush一下，因为sys_page_map不能保留Dirty位
+int
+bufc_visit(void) 
+{
+	int r;
+
+	if (++nvisit < NVISIT)
+		return 0;
+	nvisit = 0;
+
+	for (EmbedLink *ln = bufc_used.next; ln != &bufc_used; ln = ln->next) {
+		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
+		void *addr = bc->bufc_addr;
+		if (uvpt[PGNUM(addr)] & PTE_A) {
+			flush_block(addr);
+			if (r = sys_page_map(0, addr, 0, addr, uvpt[PGNUM(addr)] & PTE_SYSCALL), r < 0)
+				return r;
+		}
+	}
+
+	return 0;
+}
+// 将缓存块的内容释放
+static int 
+bufc_remove(BufferCache *bc) 
+{
+	int r;
+
+	flush_block(bc->bufc_addr);
+	if (r = sys_page_unmap(0, bc->bufc_addr), r < 0)
+		return r;
+	ncache--;
+	elink_remove(&bc->bufc_used_link);
+	bc->bufc_free_link = bufc_free;
+	bufc_free = bc;
+	bc->bufc_addr = 0;
+
+	return 0;
+}
+// 驱逐一些缓存块
+static int 
+bufc_evict(void) 
+{
+	int r;
+
+	EmbedLink *ln;
+	// 驱逐所有Access位为0的块
+	for (ln = bufc_used.next; ln != &bufc_used;) {
+		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
+		void *addr = bc->bufc_addr;
+		ln = ln->next;
+		if (!(uvpt[PGNUM(addr)] & PTE_A)) {
+			if (r = bufc_remove(bc), r < 0)
+				return r;
+		}
+	}
+	// 如果失败，则驱逐最早进入缓存的块
+	if (ncache == NCACHE) {
+		ln = bufc_used.next;
+		assert(ln != &bufc_used);
+		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
+		if (r = bufc_remove(bc), r < 0)
+			return r;
+	}
+
+	return 0;
+}
+```
+
+顺便在`free_block`时也将其映射的页释放：
+
+```C
+// Mark a block free in the bitmap
+void
+free_block(uint32_t blockno)
+{
+	int r;
+	// Blockno zero is the null pointer of block numbers.
+	if (blockno == 0)
+		panic("attempt to free zero block");
+	bitmap[blockno/32] |= 1<<(blockno%32);
+	// 释放缓存
+	if (r = sys_page_unmap(0, diskaddr(blockno)), r < 0)
+		panic("free_block: %e", r);
+}
+```
+
+
 
 ### 测试
 
-将`NCACHE`设为16（基本上可以保证肯定会有）后的测试结果，
+将`NCACHE`设为16（基本上可以保证肯定会有驱逐现象）后的测试结果，
 
 ```
 internal FS tests [fs/test.c]: OK (1.4s) 
@@ -491,4 +662,3 @@ testshell: OK (1.9s)
 primespipe: OK (5.5s) 
 Score: 150/150
 ```
-

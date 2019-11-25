@@ -4,9 +4,13 @@
 #include <inc/config.h>
 #include <inc/log.h>
 
+extern volatile pde_t uvpd[];
+extern volatile pte_t uvpt[];
+
 #ifdef CONF_BUF_CACHE
+
 #define NCACHE 1024
-#define NALLOC (NCACHE / 8)
+#define NVISIT (NCACHE / 4)
 typedef struct BufferCache {
 	struct BufferCache *bufc_free_link;
 	EmbedLink bufc_used_link;
@@ -17,37 +21,37 @@ static BufferCache bcaches[NCACHE];
 static BufferCache *bufc_free;
 static EmbedLink bufc_used;
 static int ncache = 0;
-static int nalloc = 0;
+static int nvisit = 0;
 
 static void bufc_init(void);
 static int bufc_alloc(void *addr);
-static int bufc_scan(void);
+int bufc_visit(void);
 static int bufc_evict(void);
 static int bufc_remove(BufferCache *bc);
 static bool is_reserved(void *addr);
 
+// 是否为保留块？
 static bool 
 is_reserved(void *addr)
 {
 	return addr < diskaddr(2);
 }
 
+// 每次page fault引入磁盘块后都会调用该函数
 static int
 bufc_alloc(void *addr)
 {
 	int r;
 
-	if (++nalloc == NALLOC) {
-		nalloc = 0;
-		if (r = bufc_scan(), r < 0)
-			return r;
-	}
+	// 忽略保留块
 	if (is_reserved(addr))
 		return 0;
+	// 缓存块数达到上限，驱逐一些块
 	if (ncache == NCACHE) {
 		if (r = bufc_evict(), r < 0)
 			return r;
 	}
+	// 为addr分配一个块
 	assert(bufc_free);
 	ncache++;
 	BufferCache *bc = bufc_free;
@@ -57,6 +61,7 @@ bufc_alloc(void *addr)
 
 	return 0;
 }
+// 初始化相关数据结构
 static void
 bufc_init(void)
 {
@@ -68,25 +73,30 @@ bufc_init(void)
 	}
 	elink_init(&bufc_used);
 }
-static int
-bufc_scan(void) 
+// 增加计数器。若达上限则扫描缓存块，将其Access位清零
+// 注意清零之前需要flush一下，因为sys_page_map不能保留Dirty位
+int
+bufc_visit(void) 
 {
 	int r;
+
+	if (++nvisit < NVISIT)
+		return 0;
+	nvisit = 0;
 
 	for (EmbedLink *ln = bufc_used.next; ln != &bufc_used; ln = ln->next) {
 		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
 		void *addr = bc->bufc_addr;
 		if (uvpt[PGNUM(addr)] & PTE_A) {
 			flush_block(addr);
-			if (r = sys_page_map(0, addr, 0, addr, uvpt[PGNUM(addr)] & PTE_SYSCALL), r < 0) {
-				checkpoint;
+			if (r = sys_page_map(0, addr, 0, addr, uvpt[PGNUM(addr)] & PTE_SYSCALL), r < 0)
 				return r;
-			}
 		}
 	}
 
 	return 0;
 }
+// 将缓存块的内容释放
 static int 
 bufc_remove(BufferCache *bc) 
 {
@@ -103,14 +113,14 @@ bufc_remove(BufferCache *bc)
 
 	return 0;
 }
+// 驱逐一些缓存块
 static int 
 bufc_evict(void) 
 {
 	int r;
 
-	checkpoint;
-
 	EmbedLink *ln;
+	// 驱逐所有Access位为0的块
 	for (ln = bufc_used.next; ln != &bufc_used;) {
 		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
 		void *addr = bc->bufc_addr;
@@ -120,19 +130,19 @@ bufc_evict(void)
 				return r;
 		}
 	}
+	// 如果失败，则驱逐最早进入缓存的块
 	if (ncache == NCACHE) {
-		ln = bufc_used.prev;
+		ln = bufc_used.next;
 		assert(ln != &bufc_used);
 		BufferCache *bc = master(ln, BufferCache, bufc_used_link);
 		if (r = bufc_remove(bc), r < 0)
 			return r;
 	}
+
 	return 0;
 }
-#endif
 
-extern volatile pde_t uvpd[];
-extern volatile pte_t uvpt[];
+#endif
 
 // Return the virtual address of this disk block.
 void*
