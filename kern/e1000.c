@@ -16,11 +16,6 @@
  * R/clr - register is read only and is cleared when read
  * A - register array
  */
-#define REG_CTRL     0x00000  /* Device Control - RW */
-#define REG_STATUS   0x00008  /* Device Status - RO */
-#define REG_EECD     0x00010  /* EEPROM/Flash Control - RW */
-#define REG_EERD     0x00014  /* EEPROM Read - RW */
-
 #define REG_RAL      0x05400
 #define REG_RAH      0x05404
 #define REG_RDBAL    0x02800  /* RX Descriptor Base Address Low - RW */
@@ -38,40 +33,34 @@
 #define REG_TCTL     0x00400  /* TX Control - RW */
 #define REG_TIPG     0x00410  /* TX Inter-packet gap -RW */
 
-#define REG_TXCW     0x00178  /* TX Configuration Word - RW */
-#define REG_RXCW     0x00180  /* RX Configuration Word - RO */
-
-#define REG_EEARBC   0x01024  /* EEPROM Auto Read Bus Control */
-#define REG_EEWR     0x0102C  /* EEPROM Write Register - RW */
-
 #define REG_MTA      0x05200  /* Multicast Table Array - RW Array */
 #define REG_IMS      0x000D0  /* Interrupt Mask Set - RW */
 
 
 struct e1000_rx_desc {
-    volatile uint64_t addr;
-    volatile uint16_t length;
-    volatile uint16_t checksum;
-    volatile uint8_t status;
-    volatile uint8_t errors;
-    volatile uint16_t special;
-} __attribute__((packed));
+    uint64_t addr;
+    uint16_t length;
+    uint16_t checksum;
+    uint8_t status;
+    uint8_t errors;
+    uint16_t special;
+};
 
 struct e1000_tx_desc {
-    volatile uint64_t addr;
-    volatile uint16_t length;
-    volatile uint8_t cso;
-    volatile uint8_t cmd;
-    volatile uint8_t status;
-    volatile uint8_t css;
-    volatile uint16_t special;
-} __attribute__((packed));
+    uint64_t addr;
+    uint16_t length;
+    uint8_t cso;
+    uint8_t cmd;
+    uint8_t status;
+    uint8_t css;
+    uint16_t special;
+};
 
 #define E1000_NTXDESC 32
 #define E1000_NRXDESC 128
 #define E1000_MAXPACK 1518
 
-volatile uint32_t *e1000;
+static volatile uint32_t *e1000;
 uint8_t e1000_irq_line;
 
 __attribute__((__aligned__(sizeof(struct e1000_tx_desc))))
@@ -97,8 +86,8 @@ pci_e1000_attach(struct pci_func *pcif)
     return 1;
 }
 
-#define TCTL_EN             (1 << 1)
-#define TCTL_PSP            (1 << 3)
+#define TCTL_EN_BIT         (1 << 1)
+#define TCTL_PSP_BIT        (1 << 3)
 #define TCTL_CT_SHIFT       4
 #define TCTL_COLD_SHIFT     12
 
@@ -106,10 +95,10 @@ pci_e1000_attach(struct pci_func *pcif)
 #define TIPG_IPGR1_SHIFT    10
 #define TIPG_IPGR2_SHIFT    20
 
-#define TX_CMD_EOP     (1 << 0)
-#define TX_CMD_IFCS    (1 << 1)
-#define TX_CMD_RS      (1 << 3)
-#define TX_STA_DD      (1 << 0)
+#define TX_CMD_EOP_BIT     (1 << 0)
+#define TX_CMD_IFCS_BIT    (1 << 1)
+#define TX_CMD_RS_BIT      (1 << 3)
+#define TX_STA_DD_BIT      (1 << 0)
 
 static volatile uint32_t *reg_tdh, *reg_tdt;
 
@@ -118,7 +107,7 @@ tx_init()
 {
     // tx descs init
     for (int i = 0; i < E1000_NTXDESC; ++i) {
-        tx_descs[i].status |= TX_STA_DD;
+        tx_descs[i].status |= TX_STA_DD_BIT;
     }
 
     // setting TDBAL, TDLEN
@@ -133,8 +122,8 @@ tx_init()
 
     // TCTL setting
     e1000[REG_TCTL >> 2] = 0
-        | TCTL_EN 
-        | TCTL_PSP 
+        | TCTL_EN_BIT 
+        | TCTL_PSP_BIT 
         | (0x10 << TCTL_CT_SHIFT) 
         | (0x40 << TCTL_COLD_SHIFT)
         ;
@@ -158,14 +147,19 @@ e1000_transmit(const char *buf, size_t len)
     uint32_t tmp_reg_tdt = *reg_tdt;
 
     // queue if full
-    if (!(tx_descs[tmp_reg_tdt].status & TX_STA_DD))
+    if (!(tx_descs[tmp_reg_tdt].status & TX_STA_DD_BIT))
         return -1;
 
     // copy memory
     memmove((void*)tx_buf[tmp_reg_tdt], buf, len);
 
     // setting desc
-    tx_descs[tmp_reg_tdt].cmd = TX_CMD_RS | TX_CMD_EOP | TX_CMD_IFCS; // EOP !!!!
+    tx_descs[tmp_reg_tdt].cmd = 0 
+        | TX_CMD_RS_BIT 
+        | TX_CMD_EOP_BIT 
+        | TX_CMD_IFCS_BIT
+        ;
+
     tx_descs[tmp_reg_tdt].status = 0;
     tx_descs[tmp_reg_tdt].addr = (uint64_t)PADDR((void*)tx_buf[tmp_reg_tdt]);
     tx_descs[tmp_reg_tdt].length = len;
@@ -173,29 +167,26 @@ e1000_transmit(const char *buf, size_t len)
     // update TDT
     *reg_tdt = (tmp_reg_tdt + 1) % E1000_NTXDESC;
 
-    while(!(tx_descs[tmp_reg_tdt].status & TX_STA_DD))
-        /* spinning */;
-
     return 0;
 }
 
-#define RAH_AS              (1 << 31)
+#define RAH_AV_BIT              (1 << 31)
 
-#define RCTL_EN             (1 << 1)
-#define RCTL_LBM_SHIFT      6
-#define RCTL_RDMTS_SHIFT    8
-#define RCTL_BAM            (1 << 15)
-#define RCTL_BSIZE_SHIFT    16
-#define RCTL_SECRC          (1 << 26)
+#define RCTL_EN_BIT             (1 << 1)
+#define RCTL_LBM_SHIFT          6
+#define RCTL_RDMTS_SHIFT        8
+#define RCTL_BAM_BIT            (1 << 15)
+#define RCTL_BSIZE_SHIFT        16
+#define RCTL_SECRC_BIT          (1 << 26)
 
-#define IMS_LSC             (1 << 2)
-#define IMS_RXSEQ           (1 << 3)
-#define IMS_RXDMT           (1 << 4)
-#define IMS_RXO             (1 << 6)
-#define IMS_RXT             (1 << 7)
+#define IMS_LSC_BIT             (1 << 2)
+#define IMS_RXSEQ_BIT           (1 << 3)
+#define IMS_RXDMT_BIT           (1 << 4)
+#define IMS_RXO_BIT             (1 << 6)
+#define IMS_RXT_BIT             (1 << 7)
 
-#define RX_STA_DD      (1 << 0)
-#define RX_STA_EOP     (1 << 1)
+#define RX_STA_DD_BIT      (1 << 0)
+#define RX_STA_EOP_BIT     (1 << 1)
 
 static volatile uint32_t *reg_rdh, *reg_rdt;
 
@@ -211,19 +202,18 @@ rx_init()
 
     // setting RAH:RAL
     e1000[REG_RAL >> 2] = QEMU_MAC_ADDR & 0xFFFFFFFF;
-    e1000[REG_RAH >> 2] = QEMU_MAC_ADDR >> 32 | RAH_AS;
+    e1000[REG_RAH >> 2] = QEMU_MAC_ADDR >> 32 | RAH_AV_BIT;
 
     // setting MTA: Multicast Table Array
     memset((void*)(e1000 + REG_MTA), 0, 128 * sizeof(uint32_t));
 
     // // setting IMS: Interrupt Mask Set
-    // e1000[REG_IMS >> 2] = 
-    //     0
-    //     | IMS_LSC
-    //     | IMS_RXSEQ
-    //     | IMS_RXDMT
-    //     | IMS_RXO 
-    //     | IMS_RXT 
+    // e1000[REG_IMS >> 2] = 0
+    //     | IMS_LSC_BIT
+    //     | IMS_RXSEQ_BIT
+    //     | IMS_RXDMT_BIT
+    //     | IMS_RXO_BIT 
+    //     | IMS_RXT_BIT 
     //     ;
 
     // setting RDBAL, RDLEN
@@ -237,14 +227,13 @@ rx_init()
     *reg_rdt = E1000_NRXDESC - 1;
 
     // setting RCTL
-    e1000[REG_RCTL >> 2] =
-        0
-        | RCTL_EN
+    e1000[REG_RCTL >> 2] = 0
+        | RCTL_EN_BIT
         | (0 << RCTL_LBM_SHIFT)
         | (3 << RCTL_RDMTS_SHIFT)
-        | RCTL_BAM
+        | RCTL_BAM_BIT
         | (0 << RCTL_BSIZE_SHIFT)
-        | RCTL_SECRC
+        | RCTL_SECRC_BIT
         ;
 }
 
@@ -254,11 +243,11 @@ e1000_receive(char *buf, size_t len)
     uint32_t tmp_reg_rdt = (*reg_rdt + 1) % E1000_NRXDESC;
 
     // queue is empty
-    if (!(rx_descs[tmp_reg_rdt].status & RX_STA_DD))
+    if (!(rx_descs[tmp_reg_rdt].status & RX_STA_DD_BIT))
         return -1;
 
     // one buffer, one packet
-    assert(rx_descs[tmp_reg_rdt].status & RX_STA_EOP);
+    assert(rx_descs[tmp_reg_rdt].status & RX_STA_EOP_BIT);
     assert(KADDR(rx_descs[tmp_reg_rdt].addr) == rx_buf[tmp_reg_rdt]);
 
     // memory copy

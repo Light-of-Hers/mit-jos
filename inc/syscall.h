@@ -20,8 +20,8 @@ enum {
 	SYS_ipc_try_send,
 	SYS_ipc_recv,
 	SYS_time_msec,
-    SYS_net_transmit,
-	SYS_net_receive,
+    SYS_dl_transmit,
+	SYS_dl_receive,
 	SYS_ipc_send,
 	NSYSCALLS
 };

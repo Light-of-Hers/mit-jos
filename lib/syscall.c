@@ -130,15 +130,15 @@ sys_time_msec(void)
 }
 
 int 
-sys_net_transmit(const char *buf, size_t len)
+sys_dl_transmit(const char *buf, size_t len)
 {
-    return syscall(SYS_net_transmit, 1, (uint32_t)buf, (uint32_t)len, 0, 0, 0);
+    return syscall(SYS_dl_transmit, 1, (uint32_t)buf, (uint32_t)len, 0, 0, 0);
 }
 
 int
-sys_net_receive(char *buf, size_t len) 
+sys_dl_receive(char *buf, size_t len) 
 {
-	return syscall(SYS_net_receive, 0, (uint32_t)buf, (uint32_t)len, 0, 0, 0);
+	return syscall(SYS_dl_receive, 0, (uint32_t)buf, (uint32_t)len, 0, 0, 0);
 }
 
 int 

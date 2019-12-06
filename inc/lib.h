@@ -60,8 +60,8 @@ int	sys_page_unmap(envid_t env, void *pg);
 int	sys_ipc_try_send(envid_t to_env, uint32_t value, void *pg, int perm);
 int	sys_ipc_recv(void *rcv_pg);
 unsigned int sys_time_msec(void);
-int sys_net_transmit(const char *buf, size_t len);
-int sys_net_receive(char *buf, size_t len);
+int sys_dl_transmit(const char *buf, size_t len);
+int sys_dl_receive(char *buf, size_t len);
 int sys_ipc_send(envid_t to_env, uint32_t value, void *pg, int perm);
 
 envid_t	sys_env_snapshot(uint32_t *dmail_store);

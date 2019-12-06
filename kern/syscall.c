@@ -562,13 +562,13 @@ sys_time_msec(void)
 }
 
 static int 
-sys_net_transmit(const char* buf, size_t len) {
+sys_dl_transmit(const char* buf, size_t len) {
     user_mem_assert(curenv, buf, len, PTE_U);
     return e1000_transmit(buf, len);    
 }
 
 static int 
-sys_net_receive(char *buf, size_t len) 
+sys_dl_receive(char *buf, size_t len) 
 {
     user_mem_assert(curenv, buf, len, PTE_U | PTE_W);
     return e1000_receive(buf, len);
@@ -737,11 +737,11 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     case SYS_time_msec: {
         return sys_time_msec();
     }
-    case SYS_net_transmit: {
-        return sys_net_transmit((const char *)a1, (size_t)a2);
+    case SYS_dl_transmit: {
+        return sys_dl_transmit((const char *)a1, (size_t)a2);
     }
-    case SYS_net_receive: {
-        return sys_net_receive((char *)a1, (size_t)a2);
+    case SYS_dl_receive: {
+        return sys_dl_receive((char *)a1, (size_t)a2);
     }
     case SYS_ipc_send: {
         return sys_ipc_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);

@@ -19,7 +19,7 @@ output(envid_t ns_envid)
             panic("in output, ipc_recv: %e", r);
         if (r != NSREQ_OUTPUT || feid != ns_envid)
             continue;
-        while (r = sys_net_transmit(nsipcbuf.pkt.jp_data, nsipcbuf.pkt.jp_len), r < 0)
-            sys_yield();
+        while (r = sys_dl_transmit(nsipcbuf.pkt.jp_data, nsipcbuf.pkt.jp_len), r < 0)
+            /* spinning */;
     }
 }
