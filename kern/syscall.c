@@ -574,6 +574,16 @@ sys_dl_receive(char *buf, size_t len)
     return e1000_receive(buf, len);
 }
 
+static int 
+sys_dl_read_mac_addr(uint8_t *mac)
+{
+    user_mem_assert(curenv, mac, 6, PTE_U | PTE_W);
+    uint64_t mac_addr = e1000_read_mac_addr();
+    for (int i = 0; i < 6; ++i)
+        mac[i] = (uint8_t)(mac_addr >> (8 * i));
+    return 0;
+}
+
 static envid_t
 sys_env_snapshot(void)
 {
@@ -728,6 +738,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     case SYS_page_unmap: {
         return sys_page_unmap((envid_t)a1, (void*)a2);
     }
+    case SYS_ipc_send: {
+        return sys_ipc_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);
+    }
     case SYS_ipc_try_send: {
         return sys_ipc_try_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);
     } 
@@ -743,8 +756,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
     case SYS_dl_receive: {
         return sys_dl_receive((char *)a1, (size_t)a2);
     }
-    case SYS_ipc_send: {
-        return sys_ipc_send((envid_t)a1, (uint32_t)a2, (void*)a3, (unsigned int)a4);
+    case SYS_dl_read_mac_addr: {
+        return sys_dl_read_mac_addr((uint8_t *)a1);
     }
     case SYS_env_snapshot: {
         return sys_env_snapshot();

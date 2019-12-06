@@ -582,7 +582,7 @@ send_data(struct http_request *req, int fd)
 
 > Q: How long approximately did it take you to do this lab?
 
-> A: :-)
+> A: 
 
 
 
@@ -605,6 +605,99 @@ web server [httpd]:
 Part B score: 70/70
 
 Score: 105/105
+```
+
+
+
+## Challenge: Get MAC Address from EEPROM
+
+### 原理
+
+查阅手册可知，可以通过EERD寄存器来访问EEPROM：
+
+> Software can use the EEPROM Read register (EERD) to cause the Ethernet controller to read a word from the EEPROM that the software can then use. To do this, software writes the address to read the Read Address (EERD.ADDR) field and then simultaneously writes a 1b to the Start Read bit (EERD.START). The Ethernet controller then reads the word from the EEPROM, sets the Read Done bit (EERD.DONE), and puts the data in the Read Data field (EERD.DATA). Software can poll the EEPROM Read register until it sees the EERD.DONE bit set, then use the data from the EERD.DATA field. Any words read this way are not written to hardware’s internal registers.
+
+而MAC地址可以通过访问EEPROM的前三个16位字来获得。
+
+
+
+### 实现
+
+查完手册，实现起来就很简单了：
+
+```C
+#define REG_EERD     0x00014
+
+#define EERD_START_BIT      (1 << 0)
+#define EERD_DONE_BIT       (1 << 4)
+#define EERD_ADDR_SHIFT     8
+#define EERD_DATA_SHIFT     16
+
+uint64_t
+e1000_read_mac_addr(void)
+{
+    uint32_t eerd = 0;
+    uint16_t data = 0;
+    uint64_t mac_addr = 0;
+
+    for (int i = 0; i < 3; ++i) {
+        e1000[REG_EERD >> 2] = 0
+            | (i << EERD_ADDR_SHIFT)
+            | EERD_START_BIT
+            ;
+        while(eerd = e1000[REG_EERD >> 2], !(eerd & EERD_DONE_BIT))
+            /* waiting */;
+        data = eerd >> EERD_DATA_SHIFT;
+        mac_addr |= (uint64_t)data << (i * 16);
+    }
+    return mac_addr;
+}
+```
+
+初始化RAH:RAL时可以直接用上：
+
+```C
+    // setting RAH:RAL
+    uint64_t mac_addr = e1000_read_mac_addr();
+    e1000[REG_RAL >> 2] = mac_addr & 0xFFFFFFFF;
+    e1000[REG_RAH >> 2] = (mac_addr >> 32) | RAH_AV_BIT;
+```
+
+添加系统调用`sys_dl_read_mac_addr`简单包装：
+
+```C
+static int 
+sys_dl_read_mac_addr(uint8_t *mac)
+{
+    user_mem_assert(curenv, mac, 6, PTE_U | PTE_W);
+    uint64_t mac_addr = e1000_read_mac_addr();
+    for (int i = 0; i < 6; ++i)
+        mac[i] = (uint8_t)(mac_addr >> (8 * i));
+    return 0;
+}
+```
+
+修改`/net/lwip/jos/jif/jif.c`中的`low_level_init`函数：
+
+```C
+static void
+low_level_init(struct netif *netif)
+{
+    int r;
+
+    netif->hwaddr_len = 6;
+    netif->mtu = 1500;
+    netif->flags = NETIF_FLAG_BROADCAST;
+
+    sys_dl_read_mac_addr(netif->hwaddr);
+    // MAC address is hardcoded to eliminate a system call
+    // netif->hwaddr[0] = 0x52;
+    // netif->hwaddr[1] = 0x54;
+    // netif->hwaddr[2] = 0x00;
+    // netif->hwaddr[3] = 0x12;
+    // netif->hwaddr[4] = 0x34;
+    // netif->hwaddr[5] = 0x56;
+}
 ```
 
 

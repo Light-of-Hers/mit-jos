@@ -142,6 +142,12 @@ sys_dl_receive(char *buf, size_t len)
 }
 
 int 
+sys_dl_read_mac_addr(uint8_t *mac)
+{
+	return syscall(SYS_dl_read_mac_addr, 0, (uint32_t)mac, 0, 0, 0, 0);
+}
+
+int 
 sys_env_rollback(envid_t eid, uint32_t dmail)
 {
 	if (dmail == EMPTY_DMAIL)

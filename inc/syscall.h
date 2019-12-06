@@ -17,12 +17,13 @@ enum {
 	SYS_env_snapshot,
 	SYS_env_rollback,
 	SYS_yield,
+	SYS_ipc_send,
 	SYS_ipc_try_send,
 	SYS_ipc_recv,
 	SYS_time_msec,
     SYS_dl_transmit,
 	SYS_dl_receive,
-	SYS_ipc_send,
+	SYS_dl_read_mac_addr,
 	NSYSCALLS
 };
 

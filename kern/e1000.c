@@ -36,7 +36,6 @@
 #define REG_MTA      0x05200  /* Multicast Table Array - RW Array */
 #define REG_IMS      0x000D0  /* Interrupt Mask Set - RW */
 
-
 struct e1000_rx_desc {
     uint64_t addr;
     uint16_t length;
@@ -71,9 +70,8 @@ __attribute__((__aligned__(sizeof(struct e1000_rx_desc))))
 static volatile struct e1000_rx_desc rx_descs[E1000_NRXDESC];
 static volatile uint8_t rx_buf[E1000_NRXDESC][E1000_MAXPACK];
 
-
-static void tx_init();
-static void rx_init();
+static void tx_init(void);
+static void rx_init(void);
 
 int
 pci_e1000_attach(struct pci_func *pcif) 
@@ -103,7 +101,7 @@ pci_e1000_attach(struct pci_func *pcif)
 static volatile uint32_t *reg_tdh, *reg_tdt;
 
 static void 
-tx_init() 
+tx_init(void) 
 {
     // tx descs init
     for (int i = 0; i < E1000_NTXDESC; ++i) {
@@ -191,7 +189,7 @@ e1000_transmit(const char *buf, size_t len)
 static volatile uint32_t *reg_rdh, *reg_rdt;
 
 static void 
-rx_init() 
+rx_init(void) 
 {
     // init rx descs
     for (int i = 0; i < E1000_NRXDESC; ++i) {
@@ -201,20 +199,12 @@ rx_init()
     }
 
     // setting RAH:RAL
-    e1000[REG_RAL >> 2] = QEMU_MAC_ADDR & 0xFFFFFFFF;
-    e1000[REG_RAH >> 2] = QEMU_MAC_ADDR >> 32 | RAH_AV_BIT;
+    uint64_t mac_addr = e1000_read_mac_addr();
+    e1000[REG_RAL >> 2] = mac_addr & 0xFFFFFFFF;
+    e1000[REG_RAH >> 2] = (mac_addr >> 32) | RAH_AV_BIT;
 
     // setting MTA: Multicast Table Array
     memset((void*)(e1000 + REG_MTA), 0, 128 * sizeof(uint32_t));
-
-    // // setting IMS: Interrupt Mask Set
-    // e1000[REG_IMS >> 2] = 0
-    //     | IMS_LSC_BIT
-    //     | IMS_RXSEQ_BIT
-    //     | IMS_RXDMT_BIT
-    //     | IMS_RXO_BIT 
-    //     | IMS_RXT_BIT 
-    //     ;
 
     // setting RDBAL, RDLEN
     e1000[REG_RDBAL >> 2] = (uint32_t)PADDR((void*)rx_descs);
@@ -263,4 +253,31 @@ e1000_receive(char *buf, size_t len)
     *reg_rdt = tmp_reg_rdt;
 
     return (int)len;
+}
+
+#define REG_EERD     0x00014
+
+#define EERD_START_BIT      (1 << 0)
+#define EERD_DONE_BIT       (1 << 4)
+#define EERD_ADDR_SHIFT     8
+#define EERD_DATA_SHIFT     16
+
+uint64_t
+e1000_read_mac_addr(void)
+{
+    uint32_t eerd = 0;
+    uint16_t data = 0;
+    uint64_t mac_addr = 0;
+
+    for (int i = 0; i < 3; ++i) {
+        e1000[REG_EERD >> 2] = 0
+            | (i << EERD_ADDR_SHIFT)
+            | EERD_START_BIT
+            ;
+        while(eerd = e1000[REG_EERD >> 2], !(eerd & EERD_DONE_BIT))
+            /* waiting */;
+        data = eerd >> EERD_DATA_SHIFT;
+        mac_addr |= (uint64_t)data << (i * 16);
+    }
+    return mac_addr;
 }
