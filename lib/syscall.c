@@ -106,6 +106,12 @@ sys_env_set_pgfault_upcall(envid_t envid, void *upcall)
 }
 
 int
+sys_ipc_send(envid_t envid, uint32_t value, void * srcva, int perm)
+{
+    return syscall(SYS_ipc_send, 0, envid, value, (uint32_t) srcva, perm, 0);
+}
+
+int
 sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, int perm)
 {
 	return syscall(SYS_ipc_try_send, 0, envid, value, (uint32_t) srcva, perm, 0);
@@ -133,4 +139,15 @@ int
 sys_net_receive(char *buf, size_t len) 
 {
 	return syscall(SYS_net_receive, 0, (uint32_t)buf, (uint32_t)len, 0, 0, 0);
+}
+
+int 
+sys_env_rollback(envid_t eid, uint32_t dmail)
+{
+	if (dmail == EMPTY_DMAIL)
+		return -E_INVAL;
+	int r = syscall(SYS_env_rollback, 1, (uint32_t)eid, dmail, 0, 0, 0);
+	if (r == 0)
+		panic("rollback should never return");
+	return r;
 }

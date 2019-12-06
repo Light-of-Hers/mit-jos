@@ -83,6 +83,7 @@ KERN_BINFILES +=	user/idle \
 			user/fairness \
 			user/pingpong \
 			user/pingpongs \
+			user/rollback \
 			user/primes
 # Binary files for LAB5
 KERN_BINFILES +=	user/faultio\

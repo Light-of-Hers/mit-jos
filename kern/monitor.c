@@ -6,12 +6,14 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 #include <inc/x86.h>
+#include <inc/log.h>
 
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
 #include <kern/trap.h>
 #include <kern/pmap.h>
+#include <kern/env.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -27,8 +29,8 @@ static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
     { "backtrace", "Backtrace the call of functions", mon_backtrace },
-    { "showmappings", "Show the mappings between given virtual memory range", mon_showmappings },
-    { "setpageperm", "Set the permission bits of a given mapping", mon_setpageperm },
+    { "showmap", "Show the mappings between given virtual memory range", mon_showmap },
+    { "setperm", "Set the permission bits of a given mapping", mon_setperm },
     { "dumpmem", "Dump the content of a given virtual/physical memory range", mon_dumpmem },
     { "continue", "Continue the execution", mon_continue },
     { "step", "Step in the execution", mon_step },
@@ -71,16 +73,19 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 
     cprintf("Stack backtrace:\n");
 
-    for(ebp = read_ebp(); ebp != 0; ebp = *(uint32_t*)(ebp)) {
+	// backtrace the ebp chain
+    for(ebp = read_ebp(); ebp != 0; ebp = *(uint32_t *)(ebp)) {
         cprintf("  ebp %08x", ebp);
-        eip = *((uint32_t*)ebp + 1);
+        eip = *((uint32_t *)ebp + 1);
         cprintf("  eip %08x", eip);
         cprintf("  args");
         for(int i=0; i<5; ++i) {
-            arg = *((uint32_t*)ebp + 2 + i);
+            arg = *((uint32_t *)ebp + 2 + i);
             cprintf(" %08x", arg);
         }
         cprintf("\n");
+
+		// get eip info
         debuginfo_eip(eip, &info);
         cprintf("         %s:%d: %.*s+%u\n", 
             info.eip_file, 
@@ -91,31 +96,32 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
-int mon_showmappings(int argc, char **argv, struct Trapframe *tf) {
+int 
+mon_showmap(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg = 
-    "Usage: showmappings START END\n"
-    "\tAttention: START <= END";
+    "Usage: showmappings <start> [<length>]\n";
 
-    if (argc != 3)
+    if (argc < 2)
         goto help;
 
     uintptr_t vstart, vend;
+    size_t vlen;
     pte_t *pte;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
 
-    vstart = (uintptr_t)strtol(argv[1], 0, 0); 
-    vend = (uintptr_t)strtol(argv[2], 0, 0);
-
-    if (vstart > vend)
-        goto help;
+    vstart = (uintptr_t)strtol(argv[1], 0, 0);
+    vlen = argc >= 3 ? (size_t)strtol(argv[2], 0, 0) : 1;
+    vend = vstart + vlen;
 
     vstart = ROUNDDOWN(vstart, PGSIZE);
     vend = ROUNDDOWN(vend, PGSIZE);
 
     for(; vstart <= vend; vstart += PGSIZE) {
-        pte = pgdir_walk(kern_pgdir, (void*)vstart, 0);
+        pte = pgdir_walk(pgdir, (void*)vstart, 0);
         if (pte && *pte & PTE_P) {
-            cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d\n",
-            vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W));
+            cprintf("VA: 0x%08x, PA: 0x%08x, U-bit: %d, W-bit: %d, COW-bit: %d\n",
+            vstart, PTE_ADDR(*pte), !!(*pte & PTE_U), !!(*pte & PTE_W), !!(*pte & 0x800));
         } else {
             cprintf("VA: 0x%08x, PA: No Mapping\n", vstart);
         }
@@ -127,9 +133,11 @@ help:
     return 0;
 }
 
-int mon_setpageperm(int argc, char **argv, struct Trapframe *tf) {
+int 
+mon_setperm(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg = 
-    "Usage: setpageperm VA PERM\n";
+    "Usage: setperm <virtual address> <permission>\n";
 
     if (argc != 3)
         goto help;
@@ -137,11 +145,13 @@ int mon_setpageperm(int argc, char **argv, struct Trapframe *tf) {
     uintptr_t va;
     uint16_t perm;
     pte_t *pte;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
+
 
     va = (uintptr_t)strtol(argv[1], 0, 0);
     perm = (uint16_t)strtol(argv[2], 0, 0);
 
-    pte = pgdir_walk(kern_pgdir, (void*)va, 0);
+    pte = pgdir_walk(pgdir, (void*)va, 0);
     if (pte && *pte & PTE_P) {
         *pte = (*pte & ~0xFFF) | (perm & 0xFFF) | PTE_P;
     } else {
@@ -154,9 +164,50 @@ help:
     return 0;    
 }
 
-int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
+static void 
+dump_vm(pde_t* pgdir, uint32_t mstart, uint32_t mend)
+{
+    uint32_t next;
+    pte_t *pte;
+    while (mstart < mend) {
+        if (!(pte = pgdir_walk(pgdir, (void *)mstart, 0))) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else if (!(*pte & PTE_P)) {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
+        } else {
+            next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
+            for (; mstart < next; ++mstart)
+                cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart,
+                        PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t *)mstart);
+        }
+    }
+}
+
+static void 
+dump_pm(pde_t* pgdir, uint32_t mstart, uint32_t mend)
+{
+    static const uint32_t map_base = 0;
+    uint32_t next, base;
+
+    while(mstart < mend) {
+        next = MIN(ROUNDUP(mstart + 1, PGSIZE), mend);
+        base = ROUNDDOWN(mstart, PGSIZE);
+        page_insert(pgdir, &pages[base / PGSIZE], (void*)map_base, PTE_P);
+        for (; mstart < next; ++mstart)
+            cprintf("[PA: 0x%08x]: %02x\n", mstart, *((uint8_t*)(mstart - base + map_base)));
+    }
+    page_remove(pgdir, (void*)map_base);
+}
+
+int 
+mon_dumpmem(int argc, char **argv, struct Trapframe *tf) 
+{
     static const char *msg =
-    "Usage: dumpmem [option] START END\n"
+    "Usage: dumpmem [option] <start> <length>\n"
     "\t-p, --physical\tuse physical address\n";
 
     int phys = 0;
@@ -178,36 +229,28 @@ int mon_dumpmem(int argc, char **argv, struct Trapframe *tf) {
     }
 
     uint32_t mstart, mend;
+    size_t mlen;
+    pde_t* pgdir = curenv ? curenv->env_pgdir : kern_pgdir;
+
     
     mstart = (uint32_t)strtol(argv[1], 0, 0);
-    mend = (uint32_t)strtol(argv[2], 0, 0);
+    mlen = (size_t)strtol(argv[2], 0, 0);
+    mend = mstart + mlen;
 
     if (phys) {
-        if (mend > ~(uint32_t)0 - KERNBASE + 1) {
+        if (mend > npages * PGSIZE) {
             cprintf("Target memory out of range\n");
             return 0;
         }
-        for (; mstart < mend; ++mstart) {
-            cprintf("[PA: 0x%08x]: %02x\n", mstart, *(uint8_t*)KADDR(mstart));
+        uint32_t next = MIN(mend, ~(uint32_t)0 - KERNBASE + 1);
+        for (; mstart < next; ++mstart) {
+            cprintf("[PA: 0x%08x]: %02x\n", mstart,
+                    *(uint8_t *)KADDR(mstart));
         }
+        if (mstart < mend)
+            dump_pm(pgdir, mstart, mend);
     } else {
-        uint32_t next;
-        pte_t *pte;
-        while(mstart < mend) {
-            if (!(pte = pgdir_walk(kern_pgdir, (void*)mstart, 0))) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart) + 1, 0, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else if (!(*pte & PTE_P)) {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: No mapping]: None\n", mstart);
-            } else {
-                next = MIN((uint32_t)PGADDR(PDX(mstart), PTX(mstart) + 1, 0), mend);
-                for (; mstart < next; ++mstart)
-                    cprintf("[VA: 0x%08x, PA: 0x%08x]: %02x\n", mstart, PTE_ADDR(*pte) | PGOFF(mstart), *(uint8_t*)mstart);
-            }
-        }
+        dump_vm(pgdir, mstart, mend);
     }
     return 0;
 
@@ -217,14 +260,17 @@ help:
 }
 
 int mon_continue(int argc, char **argv, struct Trapframe *tf) {
-    if (tf)
-        return -1;
-    return 0;
+    if (!(tf && (tf->tf_trapno == T_DEBUG || tf->tf_trapno == T_BRKPT) && ((tf->tf_cs & 3) == 3)))
+        return 0;
+    tf->tf_eflags &= ~FL_TF;
+    return -1;
 }
 
 int mon_step(int argc, char **argv, struct Trapframe *tf) {
-    // TODO
-    return 0;
+    if (!(tf && (tf->tf_trapno == T_DEBUG || tf->tf_trapno == T_BRKPT) && ((tf->tf_cs & 3) == 3)))
+        return 0;
+    tf->tf_eflags |= FL_TF;
+    return -1;
 }
 
 /***** Kernel monitor command interpreter *****/

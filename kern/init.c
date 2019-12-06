@@ -21,6 +21,27 @@
 static void boot_aps(void);
 
 
+void 
+rainbow(int stride)
+{
+	static const char msg[] = "rainbow!";
+	for (int i = 0; i < COLOR_NUM; ++i) {
+		set_fgcolor(i);
+		set_bgcolor((i + stride) % COLOR_NUM);
+		cprintf("%c", msg[i % (sizeof(msg) - 1)]);
+	}
+	reset_fgcolor();
+	reset_bgcolor();	
+	cprintf("\n");
+}
+
+void 
+test_rainbow()
+{
+	for(int i = 1; i < COLOR_NUM; ++i)
+		rainbow(i);
+}
+
 void
 i386_init(void)
 {
@@ -28,7 +49,7 @@ i386_init(void)
 	// Can't call cprintf until after we do this!
 	cons_init();
 
-	// cprintf("6828 decimal is %o octal!\n", 6828);
+	cprintf("6828 decimal is %o octal!\n", 6828);
 
 	// Lab 2 memory management initialization functions
 	mem_init();
@@ -114,6 +135,13 @@ boot_aps(void)
 void
 mp_main(void)
 {
+#ifdef CONF_HUGE_PAGE
+	// Enable page size extension
+	uint32_t cr4;
+	cr4 = rcr4();
+	cr4 |= CR4_PSE;
+	lcr4(cr4);
+#endif
 	// We are in high EIP now, safe to switch to kern_pgdir 
 	lcr3(PADDR(kern_pgdir));
 	cprintf("SMP: CPU %d starting\n", cpunum());
